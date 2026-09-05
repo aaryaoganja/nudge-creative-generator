@@ -15,6 +15,7 @@
     "scrape": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/scrape.ts",
     "models": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/models.ts",
     "try": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/try.ts",
+    "smoke": "GEMINI_API_KEY=offline-smoke node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/dev-stub-transport.ts scripts/try.ts https://beminimalist.co/products/hair-growth-anti-grey-actives-15-6-hair-serum --concepts 2 --out out/smoke",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
