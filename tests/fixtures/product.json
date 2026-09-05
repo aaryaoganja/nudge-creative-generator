@@ -1,0 +1,33 @@
+{
+  "id": 8640410419361,
+  "title": "Hair Growth + Anti-Grey 15.6% Hair Serum",
+  "handle": "hair-growth-anti-grey-actives-15-6-hair-serum",
+  "description": "<p dir=\"ltr\"><span>An advanced formulation powered by a 15.6% blend of 6 proven actives: Darkenyl, Redensyl, Procapil, AnaGain, Bicapil &amp; Silverfree.</span></p>",
+  "vendor": "Minimalist",
+  "type": "Hair Care",
+  "tags": ["Anti-Hairfall", "Hair Growth"],
+  "price": 81000,
+  "compare_at_price": 89900,
+  "available": true,
+  "variants": [
+    {
+      "id": 46795996299425,
+      "title": "Default Title",
+      "sku": "8906128102065",
+      "available": true,
+      "price": 81000,
+      "compare_at_price": 89900
+    }
+  ],
+  "images": [
+    "//cdn.shopify.com/s/files/1/0410/9608/5665/files/websiteimage_shadow_texture.jpg?v=1785500401"
+  ],
+  "media": [
+    {
+      "position": 1,
+      "src": "https://cdn.shopify.com/s/files/1/0410/9608/5665/files/websiteimage_shadow_texture.jpg?v=1785500401",
+      "width": 1103,
+      "height": 1600
+    }
+  ]
+}

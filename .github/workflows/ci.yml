@@ -29,6 +29,9 @@ jobs:
       - run: npx prisma generate
       - run: npm run lint
       - run: npm run typecheck
+      # Fixture-backed: the scrape and provider tests never touch the network,
+      # so CI stays deterministic and works without any API key.
+      - run: npm test
       - run: npm run build
 
   docker:

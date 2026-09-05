@@ -1,0 +1,68 @@
+{
+  "products": [
+    {
+      "id": 8640410419361,
+      "title": "Hair Growth + Anti-Grey 15.6% Hair Serum",
+      "handle": "hair-growth-anti-grey-actives-15-6-hair-serum",
+      "body_html": "<p dir=\"ltr\"><span>An advanced formulation powered by a 15.6% blend of 6 proven actives: Darkenyl, Redensyl, Procapil, AnaGain, Bicapil &amp; Silverfree.</span></p>",
+      "published_at": "2026-07-31T18:38:24+05:30",
+      "vendor": "Minimalist",
+      "product_type": "Hair Care",
+      "tags": ["Anti-Hairfall", "Hair Growth", "hair repair"],
+      "variants": [
+        {
+          "id": 46795996299425,
+          "title": "Default Title",
+          "sku": "8906128102065",
+          "available": true,
+          "price": "810.00",
+          "compare_at_price": "899.00"
+        }
+      ],
+      "images": [
+        {
+          "id": 44578017247393,
+          "position": 1,
+          "src": "https://cdn.shopify.com/s/files/1/0410/9608/5665/files/websiteimage_shadow_texture.jpg?v=1785500401",
+          "width": 1103,
+          "height": 1600
+        },
+        {
+          "id": 44578017149089,
+          "position": 2,
+          "src": "//cdn.shopify.com/s/files/1/0410/9608/5665/files/Frame_03.jpg?v=1785500401",
+          "width": 1100,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": 7000000000001,
+      "title": "Niacinamide 10% Face Serum",
+      "handle": "niacinamide-10-face-serum",
+      "body_html": "<p>Reduces blemishes &amp; controls oil.</p>",
+      "vendor": "Minimalist",
+      "product_type": "Skin Care",
+      "tags": ["Acne", "Oil Control"],
+      "variants": [
+        {
+          "id": 41000000000001,
+          "title": "30ml",
+          "sku": "8906128100001",
+          "available": false,
+          "price": "349.00",
+          "compare_at_price": null
+        },
+        {
+          "id": 41000000000002,
+          "title": "60ml",
+          "sku": "8906128100002",
+          "available": true,
+          "price": "599.00",
+          "compare_at_price": "699.00"
+        }
+      ],
+      "images": []
+    }
+  ]
+}

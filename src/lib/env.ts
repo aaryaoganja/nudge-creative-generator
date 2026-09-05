@@ -5,13 +5,60 @@ import { z } from "zod";
  *
  * Kept lazy so that `next build` (and `prisma generate`) do not require a real
  * environment — the schema is only evaluated when a request actually needs it.
+ *
+ * Provider keys are all optional. The pipeline degrades rather than refusing to
+ * boot: without an image key the generator still produces deterministic
+ * creatives, and `requireImageProvider()` is what raises a useful error at the
+ * point of use. That keeps a missing key from taking down the health check.
  */
+
+const csv = (fallback: string) =>
+  z
+    .string()
+    .default(fallback)
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
 const schema = z.object({
   DATABASE_URL: z.string().url(),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+
+  /**
+   * Hosts the fetcher is permitted to reach. This is both the SSRF control and
+   * a product-correctness control: the tool serves one brand, so a URL from
+   * anywhere else is a user error worth reporting, not a page worth fetching.
+   */
+  STORE_ALLOWED_HOSTS: csv("beminimalist.co,global.beminimalist.co"),
+
+  /** Default storefront used when a command is not given an explicit origin. */
+  STORE_ORIGIN: z.string().url().default("https://beminimalist.co"),
+
+  /** Shopify's JSON endpoints do not report currency; the storefront implies it. */
+  STORE_CURRENCY: z.string().length(3).default("INR"),
+
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+
+  /** Forces a provider. Unset means "whichever key is present". */
+  IMAGE_PROVIDER: z.enum(["gemini", "openai"]).optional(),
+
+  GEMINI_IMAGE_MODEL: z.string().default("gemini-3-pro-image-preview"),
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-1"),
+
+  /**
+   * Only needed for brand-asset discovery if the zero-dependency CSS extractor
+   * in src/lib/scrape/brand-assets.ts proves insufficient. Product data never
+   * needs it — Shopify publishes that as JSON.
+   */
+  FIRECRAWL_API_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -31,4 +78,9 @@ export function env(): Env {
 
   cached = parsed.data;
   return cached;
+}
+
+/** Test seam: forget the memoised environment. */
+export function resetEnvCache(): void {
+  cached = undefined;
 }

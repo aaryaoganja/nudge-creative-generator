@@ -35,6 +35,68 @@ curl -X POST localhost:3000/api/generate \
   -d '{"prompt":"win back lapsed users","channel":"push"}'
 ```
 
+## Scraper
+
+Product data comes from Shopify's own JSON endpoints — no scraping service, no
+headless browser, no API key:
+
+```
+GET /products.json?limit=250&page=N   the whole catalogue, paginated
+GET /products/<handle>.js             one product
+```
+
+The CLI runs on plain Node with no build step, so the same command works
+locally, in CI and inside the Railway container:
+
+```bash
+npm run scrape -- product https://beminimalist.co/products/<handle>
+npm run scrape -- catalog --limit 5 --pages 1     # quick smoke test
+npm run scrape -- catalog --json > catalogue.json
+npm run scrape -- brand                           # fonts, colours, logo
+```
+
+**Verifying it works where it actually has to run.** A scrape that succeeds on a
+laptop proves nothing about the container's egress, so run it in the deployed
+environment:
+
+```bash
+railway run npm run scrape -- catalog --limit 5 --pages 1
+```
+
+Exit codes: `0` success, `1` fetch failure, `2` rejected input (not a product
+URL, host not allowlisted).
+
+### Two things the scraper gets right on purpose
+
+**Money units differ between the endpoints.** `/products.json` returns
+`"810.00"` (major units); `/products/<handle>.js` returns `81000` (minor units).
+Reading the second as rupees prices the product at ₹81,000. Both are normalised
+to integer minor units in `src/lib/scrape/shopify.ts` and nowhere else.
+
+**Both product URL forms are valid.** Shopify serves a product at
+`/products/<handle>` *and* at `/collections/<collection>/products/<handle>` —
+the second is what people copy out of the address bar. Canonicalisation strips
+`utm_*`, `fbclid` and `gclid` but **preserves `?variant=`**, because variants
+carry different prices and images.
+
+### Outbound fetch safety
+
+Every fetch of a user-supplied URL goes through `src/lib/http/safe-fetch.ts`:
+https only, DNS resolved and checked against private/loopback/link-local ranges
+before connecting (169.254.169.254 is the cloud metadata endpoint), every
+redirect hop re-validated, responses size-capped while streaming, and a host
+allowlist from `STORE_ALLOWED_HOSTS`.
+
+## Tests
+
+```bash
+npm test
+```
+
+Node's built-in test runner against TypeScript directly — no test framework, no
+transpiler, no dev dependency. Fixture-backed, so the suite never touches the
+network and needs no API key.
+
 ## Endpoints
 
 | Method | Path | Purpose |
