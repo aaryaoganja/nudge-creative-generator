@@ -1,6 +1,7 @@
 # Architecture Decision Record — Minimalist Ad Generator
 
-Status: **proposed**, awaiting sign-off.
+Status: **rev 2** — §1 approach agreed; storage, pgvector, fetching, scorer
+placement and rendering revised after review. See §17 for what changed and why.
 Scope: infrastructure and data model only. Creative strategy, prompt design and
 the rubric contents are deliberately out of scope and land in later iterations.
 
@@ -61,6 +62,44 @@ Images are *render targets* of that spec, not the thing itself. The generative
 model is confined to the one job it is genuinely good at and where errors are
 harmless: producing a background scene. Text, logo, CTA, price, legal line and
 product photo are composited deterministically.
+
+### The part rev 1 glossed: compositing is the hard step, not generation
+
+Saying "product fidelity: exact" hides where hybrid actually breaks. Cutting a
+product out and pasting it onto a generated scene fails in four predictable ways:
+
+- **Translucent packaging.** Minimalist sells serums in glass dropper bottles.
+  Transparent and semi-transparent objects are the known failure mode of every
+  matting model — you get a hard pasted edge, or the original background stays
+  visible *through* the glass and clashes with the new scene.
+- **Lighting mismatch.** A softbox studio shot dropped onto a scene with warm
+  directional light reads as fake instantly.
+- **No contact shadow.** The product floats.
+- **Perspective mismatch.** The generated surface has a horizon; the product has
+  its own camera angle. They disagree.
+
+Three mitigations, in priority order:
+
+1. **Precompute cutouts per SKU; never matte at runtime.** One brand, a bounded
+   catalogue (order 50–150 SKUs). Background-remove every SKU once, offline, with
+   a human eyeballing the result, and store the transparent PNG. Runtime
+   reliability stops depending on how a matting model behaves today and starts
+   depending on a file someone already checked. This is the single largest
+   reliability win available and it falls straight out of the single-brand
+   constraint. See §18.
+2. **Default to designed colour fields, not photoreal scenes.** The brand's own
+   aesthetic is flat colour, clean type, product centred. A brand-colour field +
+   clean cutout + type is on-brand *and* has zero compositing risk, because there
+   is no lighting to match. Generated scenes are a second tier for lifestyle and
+   seasonal placements, not the default.
+3. **When you do generate a scene, condition on the product — then restore it.**
+   Do **not** generate a background blind and paste on top; that is what produces
+   floating products. Give the model the product image and have it generate the
+   scene *around* it, so it produces coherent lighting, contact shadow and
+   reflections. Then composite the original pixel-exact cutout back over the
+   model's rendition of the product region. You keep the model's shadow and
+   lighting; you restore the true packaging. This is the technique that makes
+   hybrid work, and rev 1 did not specify it.
 
 This single choice is what makes every stated requirement cheap:
 
@@ -191,19 +230,24 @@ Railway volumes attach to a single service instance, block horizontal scaling,
 are not CDN-fronted, and back up poorly. They are for caches and scratch, not
 deliverables.
 
-| | Cloudflare R2 (**recommended**) | AWS S3 | Railway volume |
-|---|---|---|---|
-| Egress cost | **$0** | ~$0.09/GB | n/a |
-| API | S3-compatible (`@aws-sdk/client-s3` unchanged) | Native | Filesystem |
-| CDN | Built in | Needs CloudFront | None |
-| Horizontal scaling | Yes | Yes | **No** |
-| Extra vendor | Yes | Yes | No |
+| | **Railway Bucket (recommended)** | Cloudflare R2 | AWS S3 | Railway volume | Postgres `bytea` |
+|---|---|---|---|---|---|
+| Egress cost | **$0** | $0 | ~$0.09/GB | n/a | n/a |
+| Price | $0.015/GB-month | ~$0.015/GB-month | ~$0.023/GB-month | Disk rate | Bloats backups |
+| API | S3-compatible | S3-compatible | Native | Filesystem | SQL |
+| Extra vendor | **None — in-project** | Yes | Yes | None | None |
+| Horizontal scaling | Yes | Yes | Yes | **No** | Yes |
+| Hands out a URL | Yes (presigned) | Yes | Yes | **No** | No |
 
-Egress is the deciding factor. Marketers download creatives in bulk, the scorer
-re-fetches images, and the UI renders thumbnail grids. R2's zero egress removes
-an entire cost variable. Migration risk is near zero because the API is
-S3-compatible — put it behind a `Storage` interface and the swap is a config
-change.
+Railway Buckets are private, S3-compatible, in-project object storage with free
+egress and unlimited free API operations. That is the same zero-egress property
+R2 offers with **one fewer vendor**, which is the deciding factor given the
+minimum-dependency constraint. `@aws-sdk/client-s3` works against it unchanged,
+so putting it behind a `Storage` interface keeps R2/S3 a config-level swap.
+
+Railway's own guidance matches: artifacts in Postgres bloat the database and its
+backups; artifacts on a volume are tied to one service and give you no URL to
+hand out.
 
 **Content-addressed keys.** Storage key = `sha256(bytes)`. Identical renders
 dedupe for free, cache invalidation becomes trivial, and re-rendering an unchanged
@@ -293,16 +337,17 @@ them:
 Cache the active config in-process with a 30–60 s TTL plus a Postgres
 `LISTEN/NOTIFY` bust, so config reads cost nothing per request.
 
-### pgvector: enable on day one, use later
+### pgvector: deferred (revised — I was wrong to push this to day one)
 
-`CREATE EXTENSION vector` costs nothing now. You will want it for:
+Railway's Postgres supports the `pgvector` extension, so enabling it is one line
+in a migration *whenever* you do it. My original justification — "designing the
+tables as though it exists is free today and awkward to retrofit" — does not hold
+up: no table design here actually depends on it. Adding a vector column and an
+index later is a routine migration.
 
-- retrieving *"specs that scored 90+ for a similar product"* as few-shot exemplars
-- near-duplicate creative detection
-- retrieval over historical findings
-
-Enabling it later is trivial; **designing the tables as though it exists** is
-free today and awkward to retrofit.
+It earns its place once there are human-labelled scores worth retrieving over,
+for few-shot exemplar selection and near-duplicate detection. That is post-v1 by
+definition. **Defer it.**
 
 ### On the current scaffold's schema
 
@@ -343,9 +388,26 @@ optional:
 - **re-validate at every redirect hop**, not just the first URL
 - response size cap, connect and total timeouts
 - fetch from the `worker`, never from a request handler
-- **domain allowlist** scoped to `brand.owned_domains`. This is an internal tool
+- **domain allowlist** scoped to the brand's own domains. This is an internal tool
   for one brand; the allowlist is both the security control and a
   product-correctness control.
+
+### Product-URL verifier — and the regex that would have shipped a bug
+
+Only single-product URLs are accepted; collection, blog and home pages are
+rejected up front with a specific message rather than half-parsed. But the naive
+rule "path must start with `/products/`" is **wrong** and would reject valid
+input: Shopify also serves
+
+```
+/collections/<collection>/products/<handle>
+```
+
+which is an extremely common share form. The verifier must accept both shapes.
+
+Canonicalisation for the cache key must **strip** `utm_*`, `fbclid`, `gclid` and
+**preserve `?variant=`**. Variants carry different prices and different images —
+dropping the variant caches the wrong price against the wrong photo, silently.
 
 ---
 
@@ -613,3 +675,236 @@ quality and on the feedback loop.
 Steps 1–7 deliver a genuinely useful tool with zero generative image spend and
 almost no latency risk. That ordering is deliberate: it front-loads the parts
 that are certain to work and defers the parts that are certain to need iteration.
+
+---
+
+## 17. What changed in rev 2, and why
+
+| Rev 1 said | Rev 2 says | Why |
+|---|---|---|
+| Cloudflare R2 for storage | **Railway Buckets** | Railway ships private, S3-compatible, in-project buckets with free egress at $0.015/GB-month. Same zero-egress win, one fewer vendor. Recommending an external vendor without checking the platform's own offering was an error. |
+| Enable pgvector day one | **Defer it** | Railway's Postgres supports the extension whenever we add it, and no table design here actually depends on it. The "awkward to retrofit" claim was wrong. |
+| Hybrid = "product fidelity exact" | **Compositing is the hard step** (§1) | Rev 1 sold the approach on its strengths and never priced its failure mode. Translucent dropper bottles, lighting mismatch and missing contact shadows are the real risks. |
+| Generate background, composite product on top | **Condition the generation on the product, then restore the true cutout over it** | Generate-blind-then-paste is what produces floating products. |
+| Background removal at runtime | **Precomputed per SKU, human-QA'd once** (§18) | Single brand, bounded catalogue. Removes a whole class of runtime failure and a whole external dependency. |
+| Policy checks live in the scorer | **Also a copy-level gate before rendering** (§21) | Catching a banned claim in text costs $0. Catching it after image generation and eight renders wastes the whole run's spend. |
+| Renderer split "is a judgment call" | **Split it** | With reliability stated as the priority, the argument sharpens — see §17.1. |
+| Latency: parallelise and cache | **Precompute the catalogue offline** (§18) | The stated goal is not repeating work. Precomputation is the structural answer; parallelism is the marginal one. |
+| Render then show | **Render → verify → repair loop** (§19) | "Reliability first" and "instructions for regeneration at runtime" require the render to be validated before it is surfaced. |
+| Formats as config rows | Config rows **plus aspect-ratio bands** (§20) | Custom sizing was requested up front. A 1:1 template cannot render an 8:1 leaderboard; bands make that explicit instead of producing garbage. |
+
+### 17.1 Restating the renderer-split argument precisely
+
+Rev 1 hand-waved this. Both topologies survive a Chromium crash — as a separate
+service the HTTP call fails and the worker retries; in-process the worker dies
+and pg-boss redelivers the job. The real argument is **memory headroom and blast
+radius**: one container running LLM calls, holding multi-megabyte image buffers,
+*and* hosting Chromium needs a much larger and more expensive instance, and OOM
+probability scales with total footprint. Split, a render OOM also does not
+discard LLM work the job already paid for. Behind a `Renderer` interface the
+decision stays reversible.
+
+---
+
+## 18. Precomputation — the main latency and cost lever
+
+The catalogue is bounded and belongs to one brand, so almost everything expensive
+can happen before anyone asks for it. A nightly Railway cron job:
+
+1. Walks the Shopify collection endpoints and snapshots every product.
+2. Background-removes each new SKU's hero image; a human clears the queue of new
+   cutouts (§22).
+3. Extracts the dominant colour palette per product, for template theming.
+4. Extracts and normalises claims, ingredients and concentrations.
+5. Optionally pre-generates a small library of scene backgrounds per category.
+
+A runtime generation for a known SKU then costs **one copy call (2–6 s) plus N
+parallel renders (~0.2 s each) — roughly 3–5 seconds and zero image-generation
+spend**, because the expensive work already happened at 03:00 for the whole
+catalogue. Generated scenes become an optional async upgrade applied *after* a
+usable creative already exists.
+
+### Stage-level content-hash caching
+
+Every pipeline stage persists its output keyed by
+`hash(stage_name, stage_version, input, config_version)`. A re-run with identical
+inputs short-circuits. This buys three things at once, structurally rather than
+as an optimisation bolted on later:
+
+- **caching** — repeated work is never repeated
+- **resumability** — a failed job restarts at the failed stage, not from scratch
+- **cheap A/B** — change one stage's config and only that stage and its
+  descendants re-run
+
+---
+
+## 19. Render → verify → repair
+
+Reliability is the stated priority over speed, and the renderer must be able to
+signal "regenerate this" at runtime. That requires validation *before* a render
+is surfaced, not after.
+
+**Known failure modes and their fixes:**
+
+| Failure | Fix |
+|---|---|
+| Web font not loaded at screenshot time → fallback font, wrong layout | Fonts baked into the image; `await document.fonts.ready`; never fetch a font at render time |
+| Product image not loaded → blank hero | Inline images as data URIs so there is no network at render time at all |
+| **Copy overflows its box** — the most common real failure | See the loop below |
+| CSS transitions mid-screenshot | Disable all animation at render time |
+| Chromium version drift changes rasterisation | Pin the Playwright/Chromium version; record `renderer_version` per render |
+| Long-lived page memory growth | Recycle pages every N renders |
+
+**The loop**, bounded at 2–3 attempts:
+
+1. Render at full resolution.
+2. In-page, measure every text node's `scrollWidth`/`scrollHeight` against its
+   box and detect overflow or clipping.
+3. On overflow, **repair deterministically first** — binary-search font size
+   within the template's declared min/max band, or switch to the template's
+   long-copy layout variant. Re-render.
+4. Only if that fails, shorten the copy with one cheap constrained LLM call and
+   re-render.
+5. If it still fails, **fail the render with a machine-readable reason.** Never
+   surface a clipped creative.
+
+This is a loop containing a model, but it is not an agent: fixed iteration cap,
+deterministic repair preferred, model strictly as fallback.
+
+### One renderer, one output — non-negotiable
+
+The preview the marketer approves must be **the actual render, downscaled** — not
+a React/CSS re-implementation of the layout in the browser. Two rendering paths
+guarantee divergence, and the tool loses trust permanently the first time a
+downloaded file differs from what was approved.
+
+### Image generation must be allowed to fail
+
+Image-generation APIs are the flakiest dependency in this system: real error
+rates, long p99 tails, and occasional content-filter refusals on entirely
+innocuous product prompts. Required behaviour: timeout, one retry, then **fall
+back to the deterministic colour-field background**. A run degrades to tier-1
+output; it never fails because the image API is down.
+
+---
+
+## 20. Formats, custom sizes, and aspect bands
+
+Placements and sizes are chosen up front in the request — multi-select over
+`format_spec` rows plus custom dimensions. That creates a constraint rev 1
+missed: **a template designed for 1:1 cannot render a 728×90 leaderboard.** 8:1 is
+a different layout, not a scaled one.
+
+So templates declare which **aspect-ratio bands** they support, and carry a layout
+variant per band:
+
+| Band | Ratio range | Example placements |
+|---|---|---|
+| Square | 0.8 – 1.25 | Meta feed 1:1, Google 1:1, 300×250 |
+| Portrait | 0.5 – 0.8 | Meta 4:5 |
+| Tall | 0.4 – 0.5 | Stories/Reels 9:16, 160×600, 300×600 |
+| Landscape | 1.25 – 2.5 | 1.91:1, 336×280 |
+| Banner | > 2.5 | 728×90, 970×250, 320×50 |
+
+A custom size snaps to the nearest supported band. A custom size outside every
+band the chosen template supports is **rejected with a clear message** rather than
+rendered into garbage.
+
+---
+
+## 21. The guardrail ladder
+
+Guardrails at every stage, cheapest and most certain first:
+
+| # | Gate | Where |
+|---|---|---|
+| 1 | Product-URL verifier; SSRF controls (§7) | Request intake |
+| 2 | Did we actually get a product? Price sane? Images present? | Post-extraction |
+| 3 | **Policy and lexicon check on generated copy** | **Post-copy, pre-render** |
+| 4 | Deterministic layout checks + repair loop (§19) | Post-render |
+| 5 | Hard gates; `verdict` separate from numeric score | Post-scoring |
+| 6 | MIME sniffing (not extension), dimension sanity, size cap, and re-encode through `sharp` to strip embedded payloads and EXIF | Upload path |
+
+Gate 3 is the one rev 1 got wrong by placing policy checks only in the scorer. It
+runs against the same versioned `policy_rule` rows — one rule engine, two call
+sites — and it runs *before* any image-generation spend.
+
+---
+
+## 22. Cost as a first-class entity
+
+### The table
+
+```
+cost_event(
+  job_id, stage, provider, model,
+  input_tokens, output_tokens,
+  cache_read_tokens, cache_write_tokens,
+  images,
+  unit_price_config_version,   -- versioned, so historical cost stays accurate
+  computed_usd, latency_ms
+)
+```
+
+Recorded **per stage, not per job** — otherwise you know the bill and not where it
+went.
+
+### Current first-party rates
+
+| Model | Input $/MTok | Output $/MTok |
+|---|---|---|
+| Claude Opus 5 | $5.00 | $25.00 |
+| Claude Sonnet 5 | $2.00 | $10.00 |
+| Claude Haiku 4.5 | $1.00 | $5.00 |
+
+Cache reads bill at roughly 0.1×, cache writes at roughly 1.25×. The brand
+profile, rubric and exemplar block are large and stable — cache them; that is the
+largest single lever on both cost and time-to-first-token. Verify caching is
+actually working by asserting `usage.cache_read_input_tokens > 0`; a timestamp or
+a UUID anywhere in the cached prefix silently disables it.
+
+### Revised per-run estimate
+
+| Stage | Model | Cost |
+|---|---|---|
+| Copy + direction (~4K in, ~1K out, brand block cached) | Sonnet 5 | ~$0.012 |
+| 3 generated backgrounds (skipped on the instant tier) | image provider | $0.10–0.30 |
+| Cutout | — | **$0 — precomputed** |
+| 24 renders | — | ~$0 |
+| Scoring 8 creatives (~5K in incl. image, ~800 out) | Sonnet 5 | ~$0.14 |
+
+**Instant tier: ~$0.15 per run. Crafted tier: $0.25–0.45.** The scoring figure is
+revised upward from rev 1's $0.08 — that estimate under-counted image input
+tokens.
+
+### Budget guards, enforced in the LLM wrapper
+
+One place, not sprinkled through the pipeline:
+
+- **Per-job ceiling** — abort and mark the job `BUDGET_EXCEEDED`
+- **Per-day global ceiling** — reject new jobs
+- **Unit prices in versioned config** — so historical cost maths stays correct
+  when a provider changes pricing
+
+Surface the cost on the API response and in the UI. A marketer who can see
+"this run cost ₹32" behaves differently from one who cannot.
+
+---
+
+## 23. Open questions blocking implementation
+
+1. **Templates.** Hybrid rendering needs 3–5 designed templates as HTML/CSS, each
+   with layout variants per aspect band (§20). Designer, existing Minimalist
+   creatives to derive from, or authored here?
+2. **Brand assets.** Logo SVG, licensed brand fonts, hex palette, tone-of-voice
+   document. Without the real fonts every render is approximate and the whole
+   deterministic-fidelity argument weakens.
+3. **Cutout QA owner.** Someone eyeballs ~100 precomputed cutouts once (§18).
+   Who?
+4. **Golden-set owner.** ~50 human-scored creatives, without which scorer quality
+   is permanently unmeasurable. This is real human labour, not a checkbox.
+5. **Catalogue crawl authority.** Nightly full-catalogue crawl of the brand's
+   storefront — confirm this is sanctioned, and whether it is first-party access
+   or vendor access.
+6. **Placement priority.** Meta only, or Meta + Google Display on day one? This
+   sets how many aspect bands the first templates must carry.
