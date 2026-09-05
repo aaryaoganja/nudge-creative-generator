@@ -14,8 +14,67 @@
  * remote APIs actually accept the request shapes; that needs a live key.
  */
 
-const TINY_PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+import zlib from "node:zlib";
+
+/**
+ * A real 1080×1350 PNG in the brand's bone colour.
+ *
+ * Returning a 1×1 placeholder would make the placement check fail every time
+ * and never exercise its pass path, and would make the UI preview meaningless.
+ * Built with zlib and a hand-rolled CRC so the stub stays dependency-free.
+ */
+function solidPng(width: number, height: number, rgb: [number, number, number]): Buffer {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 3 + 1);
+    raw[row] = 0; // filter: none
+    for (let x = 0; x < width; x++) {
+      const p = row + 1 + x * 3;
+      raw[p] = rgb[0];
+      raw[p + 1] = rgb[1];
+      raw[p + 2] = rgb[2];
+    }
+  }
+
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  const crc32 = (buf: Buffer): number => {
+    let c = 0xffffffff;
+    for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td));
+    return Buffer.concat([len, td, crc]);
+  };
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // colour type: truecolour
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/** Meta 4:5 at 2K-ish, in brand bone — passes the placement check. */
+const GENERATED_PNG_B64 = solidPng(1638, 2048, [0xf4, 0xf1, 0xec]).toString("base64");
+
+/** Stands in for the product photograph on the Shopify CDN. */
+const REFERENCE_PNG = solidPng(600, 800, [0xe8, 0xe1, 0xd7]);
 
 const PRODUCT_JS = {
   id: 8640410419361,
@@ -168,9 +227,9 @@ globalThis.fetch = (async (
   }
 
   if (url.startsWith("https://cdn.shopify.com/")) {
-    return new Response(Buffer.from(TINY_PNG_B64, "base64"), {
+    return new Response(new Uint8Array(REFERENCE_PNG), {
       status: 200,
-      headers: { "content-type": "image/jpeg" },
+      headers: { "content-type": "image/png" },
     });
   }
 
@@ -181,7 +240,12 @@ globalThis.fetch = (async (
           {
             content: {
               parts: [
-                { inlineData: { mimeType: "image/png", data: TINY_PNG_B64 } },
+                {
+                  inlineData: {
+                    mimeType: "image/png",
+                    data: GENERATED_PNG_B64,
+                  },
+                },
               ],
             },
             finishReason: "STOP",

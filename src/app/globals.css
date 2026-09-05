@@ -280,10 +280,17 @@ button.ghost {
 
 /* ── results: the ad as it appears on Meta ────────────────────────────── */
 
+/*
+ * auto-FILL with a max track, not auto-fit with 1fr: a single result must not
+ * stretch to the full container, because a 4:5 card at full width renders an
+ * image about a thousand pixels tall. Feed cards are ~500px wide in the real
+ * placement, so the preview should be too.
+ */
 .results {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 26rem));
   gap: var(--gap);
+  justify-content: start;
 }
 
 .adcard {

@@ -73,6 +73,9 @@ export function GeneratePanel() {
   const [angleHint, setAngleHint] = useState("");
 
   const [results, setResults] = useState<Result[] | null>(null);
+  const [blocked, setBlocked] = useState<
+    { name: string; policy: { findings: PolicyFinding[] } }[]
+  >([]);
   const [cost, setCost] = useState<{ totalUsd: number } | null>(null);
 
   async function resolve(event: React.FormEvent) {
@@ -121,6 +124,7 @@ export function GeneratePanel() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Generation failed");
       setResults(data.results);
+      setBlocked(data.blocked ?? []);
       setCost(data.cost);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -290,9 +294,34 @@ export function GeneratePanel() {
         <>
           {cost && (
             <div className="notice">
-              Spent ${cost.totalUsd.toFixed(4)} on this run.
+              Spent ${cost.totalUsd.toFixed(4)} on this run
+              {blocked.length > 0 &&
+                ` · ${blocked.length} concept${blocked.length > 1 ? "s" : ""} blocked before generation, so no image spend on ${blocked.length > 1 ? "those" : "that one"}`}
+              .
             </div>
           )}
+
+          {/* Blocked concepts are shown, not silently dropped — the marketer
+              needs to see what the gate caught and why. */}
+          {blocked.length > 0 && (
+            <section className="card">
+              <h2>Blocked before generation</h2>
+              {blocked.map((item, index) => (
+                <div key={index} style={{ marginBottom: "0.75rem" }}>
+                  <span className="badge blocked">blocked</span>{" "}
+                  <strong>{item.name}</strong>
+                  {item.policy.findings.map((finding, i) => (
+                    <div className={`finding ${finding.severity}`} key={i}>
+                      <strong>{finding.ruleId}</strong> — &ldquo;{finding.evidence}
+                      &rdquo; in <code>{finding.field}</code>
+                      <span className="action">{finding.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </section>
+          )}
+
           <div className="results">
             {results.map((result, index) => (
               <AdCard key={index} result={result} />
