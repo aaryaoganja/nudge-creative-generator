@@ -50,6 +50,14 @@ interface PolicyFinding {
 }
 
 interface Result {
+  placement?: {
+    id: string;
+    label: string;
+    width: number;
+    height: number;
+    ratio: string;
+    platform: string;
+  };
   concept: { name: string; angle: string; rationale: string };
   copy: { headline: string; subhead: string; primaryText: string; cta: string };
   policy: { verdict: string; findings: PolicyFinding[] };
@@ -546,6 +554,14 @@ function AdCard({
         ? "blocked"
         : "fix";
 
+  // Prefer the placement spec; fall back to the image's own dimensions so a
+  // result from an older response shape still renders uncropped.
+  const frameRatio = result.placement
+    ? `${result.placement.width} / ${result.placement.height}`
+    : result.image?.width && result.image?.height
+      ? `${result.image.width} / ${result.image.height}`
+      : "4 / 5";
+
   return (
     <article className="adcard">
       <div className="ad-meta">
@@ -564,7 +580,14 @@ function AdCard({
           className="ad-image"
           src={result.image.dataUrl}
           alt={result.concept.name}
-          style={{ cursor: "zoom-in" }}
+          style={{
+            cursor: "zoom-in",
+            // The frame takes the PLACEMENT's ratio, not a hardcoded 4:5, and
+            // contains rather than covers. A 1:1 Google asset shown in a 4:5
+            // cover frame loses a third of the creative — usually the headline.
+            aspectRatio: frameRatio,
+            objectFit: "contain",
+          }}
           onClick={() =>
             onZoom({
               src: result.image!.dataUrl,
@@ -573,7 +596,14 @@ function AdCard({
           }
         />
       ) : (
-        <div className="ad-image" style={{ display: "grid", placeItems: "center" }}>
+        <div
+          className="ad-image"
+          style={{
+            display: "grid",
+            placeItems: "center",
+            aspectRatio: frameRatio,
+          }}
+        >
           <span className="sub" style={{ padding: "1rem", textAlign: "center" }}>
             {result.error ?? "No image"}
           </span>
@@ -590,6 +620,11 @@ function AdCard({
 
       <div className="adcard-foot">
         <span className={`badge ${verdictClass}`}>{result.policy.verdict}</span>
+        {result.placement && (
+          <span className="cost">
+            {result.placement.label} · {result.placement.ratio}
+          </span>
+        )}
         <span className="cost">{result.concept.name}</span>
         {result.image && (
           <>

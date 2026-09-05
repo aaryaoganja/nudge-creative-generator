@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ShopifyClient, ShopifyFetchError } from "@/lib/scrape/shopify";
+import { parseProductUrl } from "@/lib/scrape/product-url";
 import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { safeFetchBinary, FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient, describeSchemaFailure } from "@/lib/providers/gemini-text";
@@ -113,6 +114,18 @@ export async function POST(request: Request) {
   const startedAt = new Date().toISOString();
 
   const config = env();
+
+  // Verify the URL BEFORE anything else. Relying on the scrape to fail produces
+  // a network-shaped error ("HTTP 404") for what is really a user mistake, and
+  // it costs a round trip to say so. The verifier names the actual problem.
+  const verdict = parseProductUrl(input.url, config.STORE_ALLOWED_HOSTS);
+  if (!verdict.ok) {
+    return NextResponse.json(
+      { error: verdict.message, reason: verdict.reason },
+      { status: 422 },
+    );
+  }
+
   if (!config.GEMINI_API_KEY) {
     return NextResponse.json(
       { error: "GEMINI_API_KEY is not configured on the server." },
