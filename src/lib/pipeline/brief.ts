@@ -1,11 +1,16 @@
 import {
+  BRAND_MARK_GUIDANCE,
   BRAND_VISUAL,
   BRAND_VOICE,
   COPY_LIMITS,
   CTA_OPTIONS,
+  HOOK_PATTERNS,
   OBJECTIVE_GUIDANCE,
   POLICY_RULES,
+  PRICE_DISPLAY_GUIDANCE,
+  type BrandMark,
   type Objective,
+  type PriceDisplay,
 } from "../../../config/brand.ts";
 import { BriefResponseSchema, type BriefResponse, type Claims, type PlacementSpec } from "./types.ts";
 import type { ProductSnapshot } from "../scrape/shopify.ts";
@@ -40,6 +45,10 @@ export interface BriefInput {
    * structured snapshot.
    */
   pageMarkdown?: string | null;
+  brandMark?: BrandMark;
+  priceDisplay?: PriceDisplay;
+  /** Overrides COPY_LIMITS when the placement selection spans platforms. */
+  copyLimits?: { headline: number; primaryText: number; description: number };
 }
 
 /** OpenAPI-subset schema for structured output. */
@@ -194,6 +203,28 @@ export function buildSystemPrompt(): string {
     "in the `avoid` field — put only exclusions specific to YOUR concept there,",
     "such as props or a setting that would muddle the particular idea.",
     "",
+    "## The hook — the line that decides whether the ad works",
+    "",
+    "A feed creative competes with everything else on the screen. A headline",
+    "that any competitor could also run has already failed, however well set it",
+    "is. 'Broad spectrum UV protection' is a category statement; 'SPF 50 PA++++,",
+    "printed on the front' is this brand's.",
+    "",
+    "Test every headline you write: could a rival brand run this exact line?",
+    "If yes, rewrite it around something only this product can say — the stated",
+    "concentration, the named active, the specific objection it answers.",
+    "",
+    "Patterns that work for this brand. Pick the one that fits and write it",
+    "fresh — these are shapes, not templates to fill in:",
+    "",
+    ...HOOK_PATTERNS.flatMap((pattern) => [
+      `- **${pattern.name}** — ${pattern.shape}`,
+      `  e.g. "${pattern.example}"  (${pattern.why})`,
+    ]),
+    "",
+    "Each concept must use a DIFFERENT pattern. Two concepts running the same",
+    "shape with different words are one concept, not two.",
+    "",
     "## Reading order — design for it explicitly",
     "",
     "A feed creative gets roughly one second. Decide what is read first, second",
@@ -259,9 +290,18 @@ export function buildUserPrompt(input: BriefInput): string {
     `Produce ${input.conceptCount} DISTINCT concepts. Distinct means a different strategic angle, not reworded copy.`,
     "",
     "## Copy limits — hard ceilings, count the characters",
-    `headline ≤ ${COPY_LIMITS.headline}`,
+    `headline ≤ ${input.copyLimits?.headline ?? COPY_LIMITS.headline}`,
     `subhead ≤ ${COPY_LIMITS.subhead}`,
-    `primaryText ≤ ${COPY_LIMITS.primaryText}`,
+    `primaryText ≤ ${input.copyLimits?.primaryText ?? COPY_LIMITS.primaryText}`,
+    input.copyLimits && input.copyLimits.headline < COPY_LIMITS.headline
+      ? "These are the TIGHTEST limits across the selected placements. Copy that fits the loosest platform is truncated on the strictest, so write to these."
+      : "",
+    "",
+    "## Brand mark",
+    BRAND_MARK_GUIDANCE[input.brandMark ?? "on_pack_only"],
+    "",
+    "## Price",
+    PRICE_DISPLAY_GUIDANCE[input.priceDisplay ?? "price_only"],
     "",
     "## Image prompt",
     "",

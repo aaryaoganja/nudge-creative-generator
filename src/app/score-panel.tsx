@@ -30,6 +30,7 @@ interface ScoreResponse {
   extractedText: string[];
   productVerified: boolean;
   productUrlWarning: string | null;
+  runId?: string;
   note: string | null;
   product: { title: string } | null;
 }
@@ -141,12 +142,16 @@ export function ScorePanel() {
       {score && (
         <>
           <section className="card">
-            <div className="confirm-head">
-              <div>
-                <div className="big-score">{score.overall}</div>
+            <div className="score-hero">
+              <div className="score-stack">
+                <div className="big-score">
+                  {score.overall}
+                  <span className="big-score-out-of"> / 100</span>
+                </div>
                 <span className={`badge ${verdictClass}`}>
                   {score.verdict.replace("_", " ")}
                 </span>
+                {score.runId && <span className="runid">{score.runId}</span>}
               </div>
               <div style={{ flex: 1, minWidth: "16rem" }}>
                 {Object.entries(score.dimensionScores).map(([key, value]) => (

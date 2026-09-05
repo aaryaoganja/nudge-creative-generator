@@ -83,16 +83,37 @@ async function run(theme) {
     check("reference thumbnails offered", (await page.locator(".thumb").count()) > 0);
     // The dropdowns are in-page listboxes now, not native <select>, so the
     // options only exist once the trigger is opened.
+    // Placements are a grouped multi-select now: every one adds an image, so
+    // the whole inventory and its cost implication must be visible at once.
+    const placementCount = await page.locator(".picker-item").count();
+    check("placement picker lists Meta and Google", placementCount >= 8, `${placementCount} placements`);
     check(
-      "placement trigger shows Meta 4:5",
-      (await page.locator("#placement").innerText()).includes("1080×1350"),
+      "Meta 4:5 selected by default",
+      (await page.locator(".picker-item.on").count()) === 1,
     );
-    await page.locator("#placement").click();
+    await page.locator(".picker-item", { hasText: "Display landscape" }).click();
     check(
-      "placement options render inside the page",
-      (await page.locator('[role="option"]').count()) > 0,
+      "second placement selectable",
+      (await page.locator(".picker-item.on").count()) === 2,
     );
-    await page.keyboard.press("Escape");
+    check(
+      "mixed-platform copy limits warned",
+      (await page.locator(".edit-note").filter({ hasText: "tightest limits" }).count()) === 1,
+    );
+    await page.locator(".picker-item", { hasText: "Display landscape" }).click();
+
+    // Confirmation must be correctable, or it is not a confirmation.
+    check("product name editable", await page.locator("#e-title").isVisible());
+    check("price editable", await page.locator("#e-price").isVisible());
+    check("concentrations editable", await page.locator("#e-conc").isVisible());
+
+    // Presets: react to a brief rather than invent one.
+    await page.locator(".chip").first().click();
+    check(
+      "offer preset fills the field",
+      (await page.locator("#offer").inputValue()).length > 0,
+    );
+    await page.locator(".chip.on").first().click();
 
     // Image expansion: the marketer has to be able to tell a packshot from a
     // lifestyle crop before committing spend.
@@ -133,6 +154,11 @@ async function run(theme) {
       }
     }
     const costText = await page.locator(".cost").last().innerText();
+    check(
+      "cost shows the concept x placement multiplication",
+      /concept/.test(costText) && /placement/.test(costText),
+      costText.replace(/\s+/g, " "),
+    );
     check("cost shown before any spend", /\$/.test(costText), costText.replace(/\s+/g, " "));
     // USD only — the rupee figure was a hardcoded conversion pretending to be real.
     check("cost is USD only", !costText.includes("₹"), costText.replace(/\s+/g, " "));
@@ -188,7 +214,13 @@ async function run(theme) {
     await page.screenshot({ path: `${OUT}/06-score-${theme}.png`, fullPage: true });
 
     if (primary) {
-      check("score rendered", /^\d+$/.test((await page.locator(".big-score").innerText()).trim()));
+      const scoreText = (await page.locator(".big-score").innerText()).trim();
+      check("score rendered", /^\d+/.test(scoreText), scoreText.replace(/\n/g, " "));
+      const scoreSize = await page
+        .locator(".big-score")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      check("score is the largest thing on the card", scoreSize >= 60, `${scoreSize}px`);
+      check("run id shown for traceability", (await page.locator(".runid").count()) > 0);
       check("five dimension meters", (await page.locator(".scoreline").count()) === 5);
       check("do-more and do-less populated", (await page.locator("ul.plain li").count()) > 1);
       check("findings listed", (await page.locator(".finding").count()) > 0);

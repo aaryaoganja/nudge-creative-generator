@@ -698,3 +698,203 @@ pre.prompt {
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
 }
+
+/* ── placement picker ──────────────────────────────────────────────────── */
+
+.picker {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem 1rem;
+  margin: 0 0 0.85rem;
+}
+
+.picker > legend {
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0 0.4rem;
+}
+
+.picker-group + .picker-group {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.picker-platform {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.picker-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.5rem;
+}
+
+.picker-item {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin: 0;
+  background: var(--bg);
+}
+
+.picker-item.on {
+  border-color: var(--fg);
+  background: var(--card);
+}
+
+.picker-item input {
+  margin: 0.15rem 0 0;
+  accent-color: var(--fg);
+  flex: none;
+}
+
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.picker-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.picker-dims {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.picker-note {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.picker-note.dim {
+  opacity: 0.75;
+}
+
+.picker-safe {
+  font-size: 0.72rem;
+  color: var(--warn);
+}
+
+/* ── preset chips ──────────────────────────────────────────────────────── */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.chip.on {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+/* ── editable confirm fields ───────────────────────────────────────────── */
+
+.editable {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.editable label {
+  font-size: 0.72rem;
+}
+
+.editable input {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.edited {
+  border-color: var(--warn) !important;
+}
+
+.edit-note {
+  font-size: 0.74rem;
+  color: var(--warn);
+  margin: 0.5rem 0 0;
+}
+
+/* ── run id ────────────────────────────────────────────────────────────── */
+
+.runid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+}
+
+/* ── score headline: the number is the point of the page ───────────────── */
+
+.score-hero {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.big-score {
+  font-size: 5rem;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.9;
+}
+
+.big-score-out-of {
+  font-size: 1.1rem;
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.score-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  align-items: flex-start;
+}

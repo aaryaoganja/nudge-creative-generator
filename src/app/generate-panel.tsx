@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Select } from "./select";
 import { Lightbox } from "./lightbox";
+import { PlacementPicker, Chips } from "./multi-select";
+import { placementsSorted, limitsFor, OFFER_PRESETS, ANGLE_PRESETS } from "../../config/placements";
 
 /**
  * Generation flow: URL → confirm → brief → creatives.
@@ -37,13 +39,6 @@ interface Snapshot {
   descriptionText: string | null;
   images: ProductImage[];
   concentrations: number[];
-}
-
-interface Placement {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
 }
 
 interface PolicyFinding {
@@ -90,8 +85,18 @@ export function GeneratePanel() {
 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [claims, setClaims] = useState<Claims | null>(null);
-  const [placements, setPlacements] = useState<Placement[]>([]);
-  const [placementId, setPlacementId] = useState("meta_feed_4x5");
+  const [placementIds, setPlacementIds] = useState<string[]>(["meta_feed_4x5"]);
+  const allPlacements = placementsSorted();
+
+  // Confirmation-step corrections. Empty means "use what was scraped".
+  const [editTitle, setEditTitle] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editCompareAt, setEditCompareAt] = useState("");
+  const [editConcentrations, setEditConcentrations] = useState("");
+
+  const [brandMark, setBrandMark] = useState("on_pack_only");
+  const [priceDisplay, setPriceDisplay] = useState("price_only");
+  const [runId, setRunId] = useState<string | null>(null);
 
   // Ordered: the first entry is the primary reference the model anchors on.
   const [refIndexes, setRefIndexes] = useState<number[]>([0]);
@@ -126,7 +131,18 @@ export function GeneratePanel() {
       if (!response.ok) throw new Error(data.error ?? "Could not read that page");
       setSnapshot(data.snapshot);
       setClaims(data.claims);
-      setPlacements(data.placements);
+      setEditTitle(data.snapshot.title ?? "");
+      setEditPrice(
+        data.snapshot.priceMinor != null
+          ? String(Math.round(data.snapshot.priceMinor / 100))
+          : "",
+      );
+      setEditCompareAt(
+        data.snapshot.compareAtPriceMinor != null
+          ? String(Math.round(data.snapshot.compareAtPriceMinor / 100))
+          : "",
+      );
+      setEditConcentrations((data.snapshot.concentrations ?? []).join(", "));
       // The first product image is the packshot on practically every Shopify
       // storefront, so it is the default reference.
       setRefIndexes([0]);
@@ -161,12 +177,15 @@ export function GeneratePanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           url,
-          placementId,
+          placementIds,
           objective,
           concepts,
           offer: offer || undefined,
           angleHint: angleHint || undefined,
           referenceImageIndexes: refIndexes,
+          brandMark,
+          priceDisplay,
+          overrides: buildOverrides(),
         }),
       });
       const data = await response.json();
@@ -174,6 +193,7 @@ export function GeneratePanel() {
       setResults(data.results);
       setBlocked(data.blocked ?? []);
       setCost(data.cost);
+      setRunId(data.runId ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -181,7 +201,32 @@ export function GeneratePanel() {
     }
   }
 
-  const estimate = concepts * IMAGE_COST_USD + BRIEF_COST_USD;
+  // Every placement is another image per concept — the multiplication has to
+  // be visible before the button is pressed, not discovered on the invoice.
+  const imageCount = concepts * placementIds.length;
+  const estimate = imageCount * IMAGE_COST_USD + BRIEF_COST_USD;
+  const limits = limitsFor(placementIds);
+
+  function buildOverrides() {
+    const overrides: Record<string, unknown> = {};
+    if (snapshot && editTitle && editTitle !== snapshot.title) {
+      overrides.title = editTitle;
+    }
+    const price = Number(editPrice);
+    if (editPrice && Number.isFinite(price)) overrides.priceMinor = price * 100;
+    const compareAt = Number(editCompareAt);
+    if (editCompareAt && Number.isFinite(compareAt)) {
+      overrides.compareAtPriceMinor = compareAt * 100;
+    } else if (editCompareAt === "") {
+      overrides.compareAtPriceMinor = null;
+    }
+    const parsedConc = editConcentrations
+      .split(/[,\s]+/)
+      .map((v) => Number(v.replace("%", "")))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (parsedConc.length > 0) overrides.concentrations = parsedConc;
+    return Object.keys(overrides).length > 0 ? overrides : undefined;
+  }
 
   return (
     <>
@@ -239,7 +284,54 @@ export function GeneratePanel() {
               </div>
             )}
 
-            <div className="field">
+            <div className="editable">
+              <div>
+                <label htmlFor="e-title">Product name</label>
+                <input
+                  id="e-title"
+                  type="text"
+                  className={editTitle !== snapshot.title ? "edited" : ""}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="e-price">Price (₹)</label>
+                <input
+                  id="e-price"
+                  type="number"
+                  min={0}
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="e-was">Was (₹) — blank for none</label>
+                <input
+                  id="e-was"
+                  type="number"
+                  min={0}
+                  value={editCompareAt}
+                  onChange={(e) => setEditCompareAt(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="e-conc">Concentrations (%)</label>
+                <input
+                  id="e-conc"
+                  type="text"
+                  placeholder="15.6, 10"
+                  value={editConcentrations}
+                  onChange={(e) => setEditConcentrations(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="edit-note">
+              Correct anything the scrape got wrong. Whatever is here is what the
+              creative may state — nothing else.
+            </p>
+
+            <div className="field" style={{ marginTop: "0.9rem" }}>
               <label>
                 Reference photograph — pick up to {MAX_REFERENCES}. Click ⤢ to
                 enlarge.
@@ -291,18 +383,19 @@ export function GeneratePanel() {
 
           <section className="card">
             <h2>Brief</h2>
+            <PlacementPicker
+              placements={allPlacements}
+              selected={placementIds}
+              onChange={setPlacementIds}
+            />
+            {limits.platforms.length > 1 && (
+              <p className="edit-note">
+                Mixed platforms — copy is written to the tightest limits in the
+                selection: headline {limits.headline}, primary text{" "}
+                {limits.primaryText}.
+              </p>
+            )}
             <div className="row">
-              <Select
-                id="placement"
-                label="Placement"
-                value={placementId}
-                onChange={setPlacementId}
-                options={placements.map((p) => ({
-                  value: p.id,
-                  label: p.label,
-                  hint: `${p.width}×${p.height}`,
-                }))}
-              />
               <Select
                 id="objective"
                 label="Objective"
@@ -317,6 +410,28 @@ export function GeneratePanel() {
                 onChange={(v) => setConcepts(Number(v))}
                 options={CONCEPT_OPTIONS}
               />
+              <Select
+                id="brandmark"
+                label="Brand mark"
+                value={brandMark}
+                onChange={setBrandMark}
+                options={[
+                  { value: "on_pack_only", label: "On pack only", hint: "recommended" },
+                  { value: "wordmark", label: "Add wordmark", hint: "small, corner" },
+                  { value: "none", label: "No mark", hint: "unbranded test" },
+                ]}
+              />
+              <Select
+                id="pricedisplay"
+                label="Price"
+                value={priceDisplay}
+                onChange={setPriceDisplay}
+                options={[
+                  { value: "price_only", label: "Price only", hint: "quiet, last read" },
+                  { value: "was_now", label: "Was / now", hint: "shows discount" },
+                  { value: "none", label: "No price", hint: "let the claim carry" },
+                ]}
+              />
             </div>
             <div className="row">
               <div className="field">
@@ -328,6 +443,7 @@ export function GeneratePanel() {
                   value={offer}
                   onChange={(e) => setOffer(e.target.value)}
                 />
+                <Chips options={OFFER_PRESETS} active={offer} onPick={setOffer} />
               </div>
               <div className="field">
                 <label htmlFor="angle">Angle — steer the creative direction</label>
@@ -338,6 +454,11 @@ export function GeneratePanel() {
                   value={angleHint}
                   onChange={(e) => setAngleHint(e.target.value)}
                 />
+                <Chips
+                  options={ANGLE_PRESETS}
+                  active={angleHint}
+                  onPick={setAngleHint}
+                />
               </div>
             </div>
             <div className="actions">
@@ -345,11 +466,13 @@ export function GeneratePanel() {
                 {generating && <span className="spin" />}
                 {generating
                   ? "Generating…"
-                  : `Generate ${concepts} creative${concepts > 1 ? "s" : ""}`}
+                  : `Generate ${imageCount} creative${imageCount > 1 ? "s" : ""}`}
               </button>
               <span className="cost">
-                ≈ ${estimate.toFixed(2)} · {concepts} image
-                {concepts > 1 ? "s" : ""} at ${IMAGE_COST_USD.toFixed(3)}
+                ≈ ${estimate.toFixed(2)} · {concepts} concept
+                {concepts > 1 ? "s" : ""} × {placementIds.length} placement
+                {placementIds.length > 1 ? "s" : ""} = {imageCount} image
+                {imageCount > 1 ? "s" : ""}
               </span>
             </div>
           </section>
@@ -360,6 +483,7 @@ export function GeneratePanel() {
         <>
           {cost && (
             <div className="notice">
+              {runId && <span className="runid">{runId}</span>}{" "}
               Spent ${cost.totalUsd.toFixed(4)} on this run
               {blocked.length > 0 &&
                 ` · ${blocked.length} concept${blocked.length > 1 ? "s" : ""} blocked before generation, so no image spend on ${blocked.length > 1 ? "those" : "that one"}`}

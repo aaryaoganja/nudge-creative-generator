@@ -5,9 +5,11 @@ import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { safeFetchBinary, FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient, describeSchemaFailure } from "@/lib/providers/gemini-text";
 import { GeminiImageProvider } from "@/lib/providers/gemini-image";
-import { ImageProviderError } from "@/lib/providers/image";
+import { ImageProviderError, type AspectRatio } from "@/lib/providers/image";
 import { generateBrief, renderImagePrompt } from "@/lib/pipeline/brief";
-import { claimsFrom, PLACEMENTS } from "@/lib/pipeline/types";
+import { claimsFrom, PLACEMENTS_BY_ID, limitsFor } from "@/lib/pipeline/types";
+import { discountPct } from "@/lib/scrape/shopify";
+import { newRunId, recordRun } from "@/lib/run";
 import { checkPolicy } from "@/lib/policy/check";
 import { checkPlacement } from "@/lib/image/meta";
 import { env } from "@/lib/env";
@@ -18,9 +20,33 @@ export const maxDuration = 120;
 /** Nano Banana Pro, per generated image. */
 const IMAGE_COST_USD = 0.134;
 
+/**
+ * Nano Banana Pro accepts a fixed set of ratios, so a placement's exact pixel
+ * spec is mapped to the nearest one it can actually generate. The deterministic
+ * crop downstream takes it the rest of the way — see docs/ARCHITECTURE.md §24.1.
+ */
+function aspectRatioFor(placement: { width: number; height: number }): AspectRatio {
+  const target = placement.width / placement.height;
+  const supported: AspectRatio[] = [
+    "1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+  ];
+  let best: AspectRatio = "1:1";
+  let bestDelta = Infinity;
+  for (const ratio of supported) {
+    const [w, h] = ratio.split(":").map(Number);
+    const delta = Math.abs(w / h - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = ratio;
+    }
+  }
+  return best;
+}
+
 const RequestSchema = z.object({
   url: z.string().min(1).max(2000),
-  placementId: z.string().default("meta_feed_4x5"),
+  /** Multi-select: one brief, rendered for every chosen placement. */
+  placementIds: z.array(z.string()).min(1).max(8).default(["meta_feed_4x5"]),
   objective: z
     .enum(["awareness", "consideration", "conversion", "retargeting"])
     .default("conversion"),
@@ -34,6 +60,20 @@ const RequestSchema = z.object({
    * the first image is the packshot in practically every case.
    */
   referenceImageIndexes: z.array(z.number().int().min(0).max(20)).min(1).max(2).default([0]),
+  brandMark: z.enum(["on_pack_only", "wordmark", "none"]).default("on_pack_only"),
+  priceDisplay: z.enum(["none", "price_only", "was_now"]).default("price_only"),
+  /**
+   * Corrections made at the confirmation step. Asking someone to confirm
+   * scraped facts without letting them fix a wrong one is not a confirmation.
+   */
+  overrides: z
+    .object({
+      title: z.string().max(300).optional(),
+      priceMinor: z.number().int().min(0).optional(),
+      compareAtPriceMinor: z.number().int().min(0).nullable().optional(),
+      concentrations: z.array(z.number()).max(12).optional(),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -54,16 +94,23 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data;
-  const placement = PLACEMENTS[input.placementId];
-  if (!placement) {
+  const selected = input.placementIds.map((id) => PLACEMENTS_BY_ID[id]);
+  const unknown = input.placementIds.filter((id) => !PLACEMENTS_BY_ID[id]);
+  if (unknown.length > 0) {
     return NextResponse.json(
       {
-        error: `Unknown placement "${input.placementId}"`,
-        available: Object.keys(PLACEMENTS),
+        error: `Unknown placement${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
+        available: Object.keys(PLACEMENTS_BY_ID),
       },
       { status: 422 },
     );
   }
+  // The brief is written once against the tightest limits in the selection;
+  // each placement then renders from it.
+  const primary = selected[0];
+  const limits = limitsFor(input.placementIds);
+  const runId = newRunId("generation");
+  const startedAt = new Date().toISOString();
 
   const config = env();
   if (!config.GEMINI_API_KEY) {
@@ -79,7 +126,24 @@ export async function POST(request: Request) {
       allowedHosts: config.STORE_ALLOWED_HOSTS,
       currency: config.STORE_CURRENCY,
     });
-    const snapshot = await shopify.fetchProduct(input.url);
+    const fetched = await shopify.fetchProduct(input.url);
+    // Confirmation-step corrections win over the scrape: a human who looked at
+    // the page is a better source than a parser that guessed.
+    const snapshot = {
+      ...fetched,
+      title: input.overrides?.title ?? fetched.title,
+      priceMinor: input.overrides?.priceMinor ?? fetched.priceMinor,
+      compareAtPriceMinor:
+        input.overrides?.compareAtPriceMinor !== undefined
+          ? input.overrides.compareAtPriceMinor
+          : fetched.compareAtPriceMinor,
+      concentrations:
+        input.overrides?.concentrations ?? fetched.concentrations,
+    };
+    snapshot.discountPct = discountPct(
+      snapshot.priceMinor,
+      snapshot.compareAtPriceMinor,
+    );
     const claims = claimsFrom(snapshot);
 
     // ── enrich (optional) ─────────────────────────────────────────────────
@@ -99,13 +163,20 @@ export async function POST(request: Request) {
     const brief = await generateBrief(text, {
       snapshot,
       claims,
-      placement,
+      placement: primary,
       objective: input.objective,
       conceptCount: input.concepts,
       offer: input.offer,
       angleHint: input.angleHint,
       audience: input.audience,
       pageMarkdown: page?.markdown ?? null,
+      brandMark: input.brandMark,
+      priceDisplay: input.priceDisplay,
+      copyLimits: {
+        headline: limits.headline,
+        primaryText: limits.primaryText,
+        description: limits.description,
+      },
     });
 
     // ── policy gate, before any image spend ───────────────────────────────
@@ -148,14 +219,14 @@ export async function POST(request: Request) {
 
     const referenceImages = await Promise.all(
       references.map(async (image) => {
-        const fetched = await safeFetchBinary(image.src, {
+        const asset = await safeFetchBinary(image.src, {
           allowedHosts: config.IMAGE_CDN_HOSTS,
           accept: "image/*",
           maxBytes: 12 * 1024 * 1024,
         });
         return {
-          bytes: fetched.data,
-          mimeType: fetched.contentType?.split(";")[0] ?? "image/jpeg",
+          bytes: asset.data,
+          mimeType: asset.contentType?.split(";")[0] ?? "image/jpeg",
         };
       }),
     );
@@ -170,11 +241,12 @@ export async function POST(request: Request) {
     let imageSpend = 0;
 
     for (const { concept, policy } of passing) {
+      for (const placement of selected) {
       const prompt = renderImagePrompt(concept, placement);
       try {
         const image = await imageProvider.generate({
           prompt,
-          aspectRatio: "4:5",
+          aspectRatio: aspectRatioFor(placement),
           resolution: "2K",
           referenceImages,
         });
@@ -183,6 +255,7 @@ export async function POST(request: Request) {
         const placementCheck = checkPlacement(image.bytes, placement);
 
         results.push({
+          placement,
           concept: concept.concept,
           copy: concept.copy,
           policy,
@@ -202,6 +275,7 @@ export async function POST(request: Request) {
         });
       } catch (error) {
         results.push({
+          placement,
           concept: concept.concept,
           copy: concept.copy,
           policy,
@@ -215,12 +289,34 @@ export async function POST(request: Request) {
                 : String(error),
         });
       }
+      }
     }
 
+    const totalUsd = brief.usage.costUsd + imageSpend;
+    recordRun({
+      id: runId,
+      kind: "generation",
+      startedAt,
+      summary: `${results.filter((r) => r.image).length} creative(s) · ${selected.map((p) => p.label).join(", ")}`,
+      subject: snapshot.title,
+      costUsd: totalUsd,
+      outcome: `${passing.length} passed, ${gated.length - passing.length} blocked`,
+      detail: {
+        url: input.url,
+        objective: input.objective,
+        concepts: input.concepts,
+        placementIds: input.placementIds,
+        brandMark: input.brandMark,
+        priceDisplay: input.priceDisplay,
+        models: { text: brief.model, image: config.GEMINI_IMAGE_MODEL },
+      },
+    });
+
     return NextResponse.json({
+      runId,
       snapshot,
       claims,
-      placement,
+      placements: selected,
       results,
       blocked: gated
         .filter((g) => g.policy.verdict === "blocked")

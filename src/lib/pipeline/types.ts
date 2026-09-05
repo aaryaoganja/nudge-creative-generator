@@ -73,26 +73,24 @@ export interface Claims {
   discountPct: number | null;
 }
 
-export interface PlacementSpec {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-  maxBytes: number | null;
-  platform: string;
-}
+/**
+ * The placement catalogue lives in config/placements.ts — Meta and Google,
+ * with the copy limits each platform enforces. Re-exported here so the pipeline
+ * has one import for its types.
+ */
+export {
+  PLACEMENTS_BY_ID,
+  placementsSorted,
+  limitsFor,
+  COPY_LIMITS as PLATFORM_COPY_LIMITS,
+  type PlacementSpec,
+  type Platform,
+} from "../../../config/placements.ts";
 
-/** v0 is 4:5 only. Every other placement is an INSERT, never a deploy. */
-export const PLACEMENTS: Record<string, PlacementSpec> = {
-  meta_feed_4x5: {
-    id: "meta_feed_4x5",
-    label: "Meta Feed 4:5",
-    width: 1080,
-    height: 1350,
-    maxBytes: 30 * 1024 * 1024,
-    platform: "meta",
-  },
-};
+import { PLACEMENTS_BY_ID } from "../../../config/placements.ts";
+
+/** Back-compat alias for callers that indexed the old map directly. */
+export const PLACEMENTS = PLACEMENTS_BY_ID;
 
 /** Composes the money and concentration facts the model is allowed to state. */
 export function claimsFrom(snapshot: {

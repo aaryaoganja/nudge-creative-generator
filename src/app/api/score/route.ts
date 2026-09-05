@@ -4,7 +4,8 @@ import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient } from "@/lib/providers/gemini-text";
 import { scoreCreative } from "@/lib/pipeline/score";
-import { PLACEMENTS } from "@/lib/pipeline/types";
+import { PLACEMENTS_BY_ID } from "@/lib/pipeline/types";
+import { newRunId, recordRun } from "@/lib/run";
 import { readImageMeta } from "@/lib/image/meta";
 import { env } from "@/lib/env";
 import type { ProductSnapshot } from "@/lib/scrape/shopify";
@@ -118,10 +119,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const placement = PLACEMENTS[parsed.placementId];
+  const placement = PLACEMENTS_BY_ID[parsed.placementId];
   if (!placement) {
     return NextResponse.json(
-      { error: `Unknown placement "${parsed.placementId}"`, available: Object.keys(PLACEMENTS) },
+      { error: `Unknown placement "${parsed.placementId}"`, available: Object.keys(PLACEMENTS_BY_ID) },
       { status: 422 },
     );
   }
@@ -174,7 +175,25 @@ export async function POST(request: Request) {
       pageMarkdown,
     });
 
+    const runId = newRunId("scoring");
+    recordRun({
+      id: runId,
+      kind: "scoring",
+      startedAt: new Date().toISOString(),
+      summary: `${result.overall}/100 · ${result.verdict.replace("_", " ")}`,
+      subject: snapshot?.title ?? "Uploaded creative",
+      costUsd: result.usage.costUsd,
+      outcome: result.verdict,
+      detail: {
+        placementId: placement.id,
+        productVerified: result.productVerified,
+        dimensionScores: result.dimensionScores,
+        findingCount: result.findings.length,
+      },
+    });
+
     return NextResponse.json({
+      runId,
       ...result,
       placement,
       product: snapshot

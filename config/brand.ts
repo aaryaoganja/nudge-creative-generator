@@ -242,7 +242,8 @@ export const POLICY_RULES: PolicyRule[] = [
 
 /**
  * Copy length ceilings, so overflow is caught at generation rather than at
- * render. Meta truncates primary text around 125 characters on most surfaces.
+ * render. Superseded per-request by config/placements.ts when the selection
+ * spans platforms with tighter limits.
  */
 export const COPY_LIMITS = {
   headline: 40,
@@ -250,6 +251,82 @@ export const COPY_LIMITS = {
   primaryText: 125,
   cta: 20,
 } as const;
+
+/**
+ * Hook craft.
+ *
+ * The scorer flagged the first real creative at 74 for stopping power with
+ * "relies on standard category phrasing" — and it was right. "Broad spectrum UV
+ * protection" is a line any sunscreen could run. The specification the brand
+ * actually prints on the pack is the thing no competitor can copy, and it is
+ * what should lead.
+ *
+ * These are patterns, not templates. The model picks the one that fits the
+ * product and writes it fresh.
+ */
+export const HOOK_PATTERNS = [
+  {
+    name: "The specification",
+    shape: "Lead with the exact number the pack states.",
+    example: "SPF 50 PA++++. Printed on the front.",
+    why: "The figure is proof and no competitor can borrow it.",
+  },
+  {
+    name: "The objection",
+    shape: "Name the reason people avoid this category, then answer it.",
+    example: "No white cast. That is the whole brief.",
+    why: "Speaks to the reason someone has not bought yet.",
+  },
+  {
+    name: "The substitution",
+    shape: "Frame it as replacing something in the current routine.",
+    example: "One step. Not three.",
+    why: "Concrete, and implies effort saved rather than effort added.",
+  },
+  {
+    name: "The plain fact",
+    shape: "State something true and specific that sounds like nobody wrote it.",
+    example: "Niacinamide 10%. Zinc 1%. Nothing else worth mentioning.",
+    why: "Understatement reads as confidence in this brand's register.",
+  },
+  {
+    name: "The comparison to nothing",
+    shape: "Contrast against the absence of the product, not a competitor.",
+    example: "Two weeks of sun. Or two weeks of this.",
+    why: "Avoids comparative-advertising exposure entirely.",
+  },
+] as const;
+
+/** How the brand appears in the creative itself. */
+export type BrandMark = "on_pack_only" | "wordmark" | "none";
+
+export const BRAND_MARK_GUIDANCE: Record<BrandMark, string> = {
+  on_pack_only:
+    "The brand appears only where it genuinely is — printed on the packaging. " +
+    "The ad account's page name and avatar already carry the brand in the feed, " +
+    "so a second lockup is redundant and adds clutter this brand avoids.",
+  wordmark:
+    "Place the Minimalist wordmark small and quiet in one corner, in Ink on the " +
+    "background colour. Never larger than the body copy, never centred, never " +
+    "given a container or badge.",
+  none:
+    "No brand mark at all, and do not rely on the packaging being legible. Use " +
+    "only for tests where brand attribution is deliberately withheld.",
+};
+
+/** How price is presented, when it is shown at all. */
+export type PriceDisplay = "none" | "price_only" | "was_now";
+
+export const PRICE_DISPLAY_GUIDANCE: Record<PriceDisplay, string> = {
+  none: "Do not mention price. Let the product and the claim carry the ad.",
+  price_only:
+    "State the current price once, quietly, as the last thing read. No " +
+    "strikethrough, no 'was', no percentage.",
+  was_now:
+    "Show the original price struck through, then the current price larger " +
+    "beside it, and the discount percentage. Both figures and the percentage " +
+    "must match the product data exactly.",
+};
 
 export const CTA_OPTIONS = [
   "Shop Now",
