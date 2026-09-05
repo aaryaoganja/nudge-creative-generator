@@ -22,6 +22,26 @@ export const revalidate = 0;
  *
  * When a route genuinely depends on Postgres, this becomes a hard failure again.
  */
+/**
+ * Which commit is actually live.
+ *
+ * Railway injects these automatically. Without them, "is the deploy current?"
+ * takes a screenshot and a guess — this project spent a while serving a build
+ * of a commit that no longer existed on any branch, and nothing in the running
+ * app could say so. One curl now answers it.
+ */
+function deployment() {
+  const sha = process.env.RAILWAY_GIT_COMMIT_SHA ?? null;
+  return {
+    commit: sha ? sha.slice(0, 7) : null,
+    branch: process.env.RAILWAY_GIT_BRANCH ?? null,
+    message: process.env.RAILWAY_GIT_COMMIT_MESSAGE?.split("\n")[0] ?? null,
+    deploymentId: process.env.RAILWAY_DEPLOYMENT_ID ?? null,
+    environment: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+    service: process.env.RAILWAY_SERVICE_NAME ?? null,
+  };
+}
+
 export async function GET() {
   const startedAt = Date.now();
 
@@ -55,6 +75,11 @@ export async function GET() {
 
   return NextResponse.json({
     status: "ok",
+    // Present in every response so a stale deployment identifies itself.
+    deployment: deployment(),
+    // Bumped whenever the shape of this response changes, so a client can tell
+    // an old build from a new one even if the git vars are unavailable.
+    appVersion: "0.2.0-studio",
     database,
     databaseError,
     databaseRequired: false,
