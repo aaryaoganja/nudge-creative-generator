@@ -1,7 +1,8 @@
 # Architecture Decision Record — Minimalist Ad Generator
 
-Status: **rev 2** — §1 approach agreed; storage, pgvector, fetching, scorer
-placement and rendering revised after review. See §17 for what changed and why.
+Status: **rev 3** — generation-led approach adopted; the format objection in rev 1
+is retracted on evidence, and the argument for deterministic type is re-grounded
+on regulatory rather than aesthetic footing. See §17 (rev 2) and §24 (rev 3).
 Scope: infrastructure and data model only. Creative strategy, prompt design and
 the rubric contents are deliberately out of scope and land in later iterations.
 
@@ -908,3 +909,149 @@ Surface the cost on the API response and in the UI. A marketer who can see
    or vendor access.
 6. **Placement priority.** Meta only, or Meta + Google Display on day one? This
    sets how many aspect bands the first templates must carry.
+
+---
+
+## 24. Rev 3 — generation-led, with type held back
+
+### 24.1 Retracted: "image models cannot emit your formats"
+
+Verified against current provider documentation:
+
+| Provider | Format control |
+|---|---|
+| Gemini 3.1 Flash Image / 3 Pro Image ("Nano Banana 2" / "Pro") | 1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 — **plus 1:4, 4:1, 1:8, 8:1** on 3.1 Flash. Resolutions 512px, 1K, 2K, 4K |
+| GPT Image 2 | **Arbitrary `WIDTHxHEIGHT`**, both divisible by 16, ratio between 1:3 and 3:1, max 3840×2160 |
+
+That covers nearly the whole placement matrix, including the extreme banner
+ratios I claimed were out of reach. **The objection is withdrawn.**
+
+Three constraints survive, and none of them is an argument against generation —
+they are facts about the pipeline that hold under every approach:
+
+1. **Aspect ratio is not exact pixels.** Platforms want 728×90 exactly. An 8:1
+   generation lands at some 8:1 resolution; GPT Image 2 cannot express 90px at
+   all (not divisible by 16). A deterministic `sharp` resize/crop/encode step is
+   therefore **unavoidable regardless of approach**.
+2. **File-size caps.** Google Display static tops out around 150 KB; a 2K–4K
+   generation is megabytes. Same post-process.
+3. **Cross-format consistency.** Generating N formats independently yields N
+   unrelated images. A campaign is one concept expressed across placements.
+   Reference-image conditioning narrows the drift but does not eliminate it.
+
+**Default that follows:** generate natively at the 2–3 *distinct aspect families*
+actually needed (square, vertical, horizontal) at high resolution, then derive
+every exact placement size within a family by deterministic crop/resize. Three
+generations cover ~10 placements instead of ten generations.
+
+### 24.2 The argument for deterministic type is regulatory, not aesthetic
+
+Rev 1 argued this on craft grounds. That was the weaker case. From the live
+catalogue (`products.json`, verified):
+
+```
+title:          "Hair Growth + Anti-Grey 15.6% Hair Serum"
+price:          810.00    compare_at_price: 899.00
+actives:        Darkenyl, Redensyl, Procapil, AnaGain, Bicapil, Silverfree
+claim:          "visibly reduces grey hair density"
+```
+
+A model that renders `15.6%` as `15.8%`, spells `Redensyl` as `Redensy1`, or puts
+`₹610` where `₹810` belongs has not produced a flawed creative. Under the ASCI
+code — which requires every objectively ascertainable claim to be capable of
+substantiation on demand — and the Drugs and Cosmetics Rules 1945, it has
+produced an unsubstantiable claim on a regulated cosmetic.
+
+**Additional context that raises this bar:** Hindustan Unilever acquired a 90.5%
+stake in Minimalist in 2025 at roughly ₹2,955 crore pre-money enterprise value.
+Advertising compliance is therefore no longer a D2C startup's risk appetite; it
+sits inside Unilever's claims-governance regime. The tool has to be defensible to
+a corporate legal function, not only useful to a growth marketer.
+
+### 24.3 "Template" was the wrong word — the model designs, the renderer sets type
+
+The objection to rigid templates is fair and my wording caused it. The proposal is
+**not** a menu of five fixed layouts.
+
+The model designs the composition freely — background treatment, product
+placement and scale, type hierarchy, colour, focal flow — and emits that design as
+a structured layout. The renderer executes it. The **only** thing the renderer
+owns is letterforms: turning `₹810` into pixels.
+
+Creative freedom is preserved; text fidelity, multi-format re-typesetting and
+scorer-emitted `spec_patch` fixes all survive.
+
+### 24.4 Settle A vs. B by measurement, not argument
+
+| | **A — full generation** | **B — generated scene, deterministic type** |
+|---|---|---|
+| How | Model emits the finished image, text included | Model generates the visual with a prompted clean zone; type is overlaid |
+| Claim-text fidelity | OCR-verify, regenerate on mismatch; convergence uncertain | Exact by construction |
+| Creative freedom | Maximum | Model still designs everything but the letterforms |
+| Multi-format | Re-generate per format | Re-typeset one concept |
+| Scorer `spec_patch` | Not possible | Possible |
+
+**Bake-off protocol.** 5 SKUs × 3 concepts × 2 providers at 1:1, product image
+supplied as reference — 30 images, roughly $2–5, about an hour. Score each on:
+
+1. Does the packaging text read correctly?
+2. Is it recognisably the *actual* product?
+3. Is the claim/price text exactly right?
+4. Regenerated at 9:16, is it the same concept?
+
+**Decision rule:** if (3) is anything short of 100% across 30 images, B is
+mandatory for claim-bearing text — the regulatory downside is not a percentage
+game. A and B can still coexist: A for lifestyle and awareness placements
+carrying no numeric claim, B for anything with a concentration, price or offer.
+
+### 24.5 Scraping — solved, and cheaper than expected
+
+`GET https://beminimalist.co/products.json?limit=250&page=N` is **verified
+working** and returns, per product: `id`, `title`, `handle`, `body_html`,
+`vendor`, `product_type`, `tags`, `variants[{price, compare_at_price, sku,
+available}]`, and `images[{src, width, height, position}]` on the Shopify CDN.
+
+That yields the full catalogue, prices, computable discounts, concentrations (in
+titles), ingredient lists, categories and image URLs with dimensions — for free,
+with no scraper and no JavaScript rendering. The per-product `<url>.js` endpoint
+serves the same shape for one product.
+
+**Firecrawl is therefore not needed for product data.** It stays useful for:
+brand assets as a fallback, long-form `/blogs/` copy as brand-voice examples, and
+insurance if Shopify's JSON endpoints are ever disabled.
+
+For brand assets specifically, prefer fetching the theme stylesheet and
+extracting `@font-face` declarations and CSS custom properties, plus the header
+logo element — more precise and cheaper than a general-purpose scraper.
+
+**Caveat found in the data:** the catalogue's images are 1100×1600 styled shots
+(`websiteimage_shadow_texture.jpg`, `Frame_03.jpg`), not clean white-background
+packshots. The "easy cutout" assumption in §18 weakens accordingly — per-SKU
+image selection, or sourced packshots, may be needed.
+
+### 24.6 Storage — what `bytea` actually costs
+
+Serving your own URLs and storing your own bytes are **separate decisions**. A
+Railway Bucket still sits behind `GET /api/assets/:id`; nothing forces a
+third-party URL into the product.
+
+Postgres `bytea` is viable and costs: every image traverses the Node process and
+a DB connection (a 2K generation is 1–3 MB; ~20 per run is ~40 MB per run through
+Postgres); `pg_dump` size and restore time grow linearly with image bytes; WAL
+write amplification; large reads buffer in process memory; and no presigned URLs,
+so every view is served by the app.
+
+**Acceptable compromise:** start on `bytea` behind the `Storage` interface if it
+gets v0 moving. The interface makes the swap one file. `bytea` *without* the
+interface is the version to refuse.
+
+### 24.7 Golden set — one condition
+
+Building it from real iteration is the right method. The condition: **freeze
+labels before tuning against them.** Label, tune, then relabel from the tuned
+output and the set becomes a mirror that measures nothing. Split roughly 30 train
+(tune freely) / 20 holdout (opened only to measure).
+
+Competitor brand or foreign logo present ⇒ `verdict: blocked` on the policy
+dimension regardless of aesthetic score — exactly the score/verdict separation in
+§11.
