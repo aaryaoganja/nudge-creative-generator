@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
+import { getPrisma } from "@/lib/db";
+import { env, hasDatabase } from "@/lib/env";
 
 // Railway probes this path (see .railway/railway.ts `healthcheck`). It must never
 // be prerendered or cached, or the probe would pass against a stale snapshot.
@@ -25,15 +25,18 @@ export const revalidate = 0;
 export async function GET() {
   const startedAt = Date.now();
 
-  let database: "reachable" | "unreachable" = "unreachable";
+  let database: "reachable" | "unreachable" | "not_configured" = "not_configured";
   let databaseError: string | null = null;
 
-  try {
-    // Cheapest possible round-trip that proves the pool is actually usable.
-    await prisma.$queryRaw`SELECT 1`;
-    database = "reachable";
-  } catch (error) {
-    databaseError = error instanceof Error ? error.message : String(error);
+  if (hasDatabase()) {
+    database = "unreachable";
+    try {
+      // Cheapest possible round-trip that proves the pool is actually usable.
+      await getPrisma().$queryRaw`SELECT 1`;
+      database = "reachable";
+    } catch (error) {
+      databaseError = error instanceof Error ? error.message : String(error);
+    }
   }
 
   // Surfaced so a misconfigured deployment is diagnosable from the probe alone,

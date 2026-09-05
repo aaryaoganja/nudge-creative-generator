@@ -24,7 +24,19 @@ const csv = (fallback: string) =>
     );
 
 const schema = z.object({
-  DATABASE_URL: z.string().url(),
+  /**
+   * OPTIONAL, deliberately.
+   *
+   * No user-facing route queries Postgres: resolve, generate and score all run
+   * without it. Making this required meant every one of those routes threw
+   * `Invalid environment configuration — DATABASE_URL` on a deployment where
+   * the database was not wired, taking the whole app down over a dependency it
+   * does not use.
+   *
+   * It becomes required when something actually reads from it — see
+   * requireDatabaseUrl(), which fails loudly at the point of use instead.
+   */
+  DATABASE_URL: z.string().url().optional(),
 
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -106,4 +118,23 @@ export function env(): Env {
 /** Test seam: forget the memoised environment. */
 export function resetEnvCache(): void {
   cached = undefined;
+}
+
+/**
+ * For code that genuinely needs Postgres. Throws where the need is, rather than
+ * at import time in a module that a route merely happens to pull in.
+ */
+export function requireDatabaseUrl(): string {
+  const url = env().DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Provision Postgres and inject its connection " +
+        "string, or use a code path that does not read from the database.",
+    );
+  }
+  return url;
+}
+
+export function hasDatabase(): boolean {
+  return Boolean(env().DATABASE_URL);
 }

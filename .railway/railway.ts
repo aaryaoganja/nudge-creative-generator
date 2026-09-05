@@ -43,9 +43,13 @@ export default defineRailway((ctx) => {
     healthcheck: "/api/health",
     healthcheckTimeout: 60,
 
-    // Runs after build, before traffic shifts to the new deployment. A failure
-    // here aborts the deploy, so a bad migration never serves traffic.
-    preDeploy: "node node_modules/prisma/build/index.js migrate deploy",
+    // No preDeploy migration yet, on purpose. `prisma migrate deploy` exits
+    // non-zero without a reachable DATABASE_URL, and a failing preDeploy aborts
+    // the whole deployment — so a schema that nothing currently reads would be
+    // able to take the UI down. Restore it in the same change that introduces
+    // the first route which actually queries Postgres:
+    //
+    //   preDeploy: "node node_modules/prisma/build/index.js migrate deploy",
 
     replicas: prod ? 2 : 1,
 
