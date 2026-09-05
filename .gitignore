@@ -1,0 +1,25 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Generated Prisma client — recreated by `prisma generate` during build.
+/src/generated/
+
+.env
+.env.local
+.env.*.local
+
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+.DS_Store
+*.pem
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Railway IaC plan artifacts
+railway-plan.json

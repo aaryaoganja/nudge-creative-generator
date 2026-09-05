@@ -1,0 +1,37 @@
+// Prisma schema for nudge-creative-generator.
+//
+// The datasource URL is supplied by Railway's managed Postgres via DATABASE_URL,
+// wired in .railway/railway.ts as `db.env.DATABASE_URL`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 no longer accepts `url` here. The migration URL lives in
+// prisma.config.ts; the runtime connection comes from the driver adapter
+// configured in src/lib/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+/// A single creative-generation request and its result.
+model Creative {
+  id        String         @id @default(cuid())
+  prompt    String
+  channel   String
+  status    CreativeStatus @default(PENDING)
+  body      String?
+  error     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([channel, createdAt])
+  @@map("creatives")
+}
+
+enum CreativeStatus {
+  PENDING
+  READY
+  FAILED
+}
