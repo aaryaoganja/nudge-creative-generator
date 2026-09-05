@@ -1,22 +1,40 @@
+"use client";
+
+import { useState } from "react";
+import { GeneratePanel } from "./generate-panel";
+import { ScorePanel } from "./score-panel";
+
 export default function Home() {
+  const [tab, setTab] = useState<"generate" | "score">("generate");
+
   return (
-    <main>
-      <h1>Nudge Creative Generator</h1>
-      <p>
-        Infrastructure scaffold. The generation logic is not implemented yet —
-        see <code>src/app/api/generate/route.ts</code>.
-      </p>
-      <ul>
-        <li>
-          <code>GET /api/health</code> — liveness probe used by Railway
-        </li>
-        <li>
-          <code>GET /api/generate</code> — list recent creatives
-        </li>
-        <li>
-          <code>POST /api/generate</code> — create one (stubbed generation)
-        </li>
-      </ul>
-    </main>
+    <div className="shell">
+      <header className="masthead">
+        <h1>Minimalist Ad Studio</h1>
+        <p className="sub">
+          Paste a product URL. Everything else is read from the page.
+        </p>
+        <div className="tabs" role="tablist">
+          <button
+            className="tab"
+            role="tab"
+            aria-selected={tab === "generate"}
+            onClick={() => setTab("generate")}
+          >
+            Generate
+          </button>
+          <button
+            className="tab"
+            role="tab"
+            aria-selected={tab === "score"}
+            onClick={() => setTab("score")}
+          >
+            Score a creative
+          </button>
+        </div>
+      </header>
+
+      {tab === "generate" ? <GeneratePanel /> : <ScorePanel />}
+    </div>
   );
 }

@@ -100,6 +100,50 @@ const BRIEF_JSON = {
   ],
 };
 
+const SCORE_JSON = {
+  extractedText: ["15.6% ACTIVES", "Minimalist", "₹810"],
+  dimensionScores: {
+    brand_fit: 82,
+    compliance: 91,
+    clarity: 78,
+    craft: 80,
+    stopping_power: 68,
+  },
+  readsAsGenericSkincareAd: false,
+  genericMarkers: [],
+  competingBrandVisible: false,
+  findings: [
+    {
+      severity: "minor",
+      dimension: "clarity",
+      observation:
+        "The concentration figure and the product name compete for first read.",
+      action:
+        "Increase 15.6% to roughly twice the size of the product name so the number leads.",
+      verified: true,
+    },
+    {
+      severity: "major",
+      dimension: "stopping_power",
+      observation:
+        "The composition is centred and static, which reads as a packshot rather than an ad.",
+      action:
+        "Offset the bottle to the left third and let the headline occupy the upper right.",
+      verified: true,
+    },
+  ],
+  doMore: [
+    "Lead with the concentration figure at the largest type size",
+    "Keep the negative space — it is what separates this from category noise",
+  ],
+  doLess: [
+    "Centred symmetry; it flattens the hierarchy",
+    "Secondary supporting copy that repeats the headline",
+  ],
+  summary:
+    "On-brand and compliant. The hierarchy needs work before it will stop a thumb.",
+};
+
 function json(payload: unknown, contentType = "application/json"): Response {
   return new Response(JSON.stringify(payload), {
     status: 200,
@@ -109,6 +153,7 @@ function json(payload: unknown, contentType = "application/json"): Response {
 
 globalThis.fetch = (async (
   input: string | URL | Request,
+  init?: RequestInit,
 ): Promise<Response> => {
   const url =
     typeof input === "string"
@@ -116,6 +161,7 @@ globalThis.fetch = (async (
       : input instanceof URL
         ? input.href
         : input.url;
+  const rawBody = typeof init?.body === "string" ? init.body : "";
 
   if (url.includes("/products/") && url.endsWith(".js")) {
     return json(PRODUCT_JS, "application/javascript");
@@ -143,18 +189,30 @@ globalThis.fetch = (async (
         ],
       });
     }
+    // The scorer is the text model called WITH an image attached.
+    const isVisionScore = rawBody.includes("inline_data");
     return json({
       candidates: [
         {
-          content: { parts: [{ text: JSON.stringify(BRIEF_JSON) }] },
+          content: {
+            parts: [
+              { text: JSON.stringify(isVisionScore ? SCORE_JSON : BRIEF_JSON) },
+            ],
+          },
           finishReason: "STOP",
         },
       ],
-      usageMetadata: {
-        promptTokenCount: 3480,
-        candidatesTokenCount: 1190,
-        totalTokenCount: 4670,
-      },
+      usageMetadata: isVisionScore
+        ? {
+            promptTokenCount: 4520,
+            candidatesTokenCount: 680,
+            totalTokenCount: 5200,
+          }
+        : {
+            promptTokenCount: 3480,
+            candidatesTokenCount: 1190,
+            totalTokenCount: 4670,
+          },
     });
   }
 

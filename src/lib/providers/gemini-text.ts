@@ -58,6 +58,8 @@ export interface GenerateJsonRequest {
   responseSchema?: unknown;
   temperature?: number;
   maxOutputTokens?: number;
+  /** gemini-3.7-flash accepts image input, which is what powers the scorer. */
+  images?: Array<{ bytes: Uint8Array; mimeType: string }>;
   signal?: AbortSignal;
 }
 
@@ -128,8 +130,18 @@ export class GeminiTextClient {
   ): Promise<TextResult<T>> {
     const startedAt = Date.now();
 
+    const parts: Array<Record<string, unknown>> = [{ text: request.prompt }];
+    for (const image of request.images ?? []) {
+      parts.push({
+        inline_data: {
+          mime_type: image.mimeType,
+          data: Buffer.from(image.bytes).toString("base64"),
+        },
+      });
+    }
+
     const body: Record<string, unknown> = {
-      contents: [{ role: "user", parts: [{ text: request.prompt }] }],
+      contents: [{ role: "user", parts }],
       generationConfig: {
         responseMimeType: "application/json",
         temperature: request.temperature ?? 0.9,

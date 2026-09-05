@@ -335,7 +335,16 @@ describe("pipeline smoke — full chain, stubbed transport", () => {
     assert.match(prompt, /1080×1350/);
     assert.match(prompt, /"15\.6% ACTIVES"/);
     assert.match(prompt, /reproduced faithfully/);
-    assert.match(prompt, /Avoid: other brands/);
+    // Brand palette must reach the image model, or it reverts to generic defaults.
+    assert.match(prompt, /#F4F1EC/);
+    assert.match(prompt, /#1A1A1A/);
+    // The generic-skincare-ad markers must be forbidden explicitly, whether or
+    // not the copywriter thought to list them.
+    assert.match(prompt, /marble/i);
+    assert.match(prompt, /tropical leaves/i);
+    assert.match(prompt, /gold foil/i);
+    // The model's own avoid list survives alongside the brand-level bans.
+    assert.match(prompt, /other brands/i);
 
     // ── 5. reference image + generation ───────────────────────────────────
     const reference = await safeFetchBinary(snapshot.images[0].src, {

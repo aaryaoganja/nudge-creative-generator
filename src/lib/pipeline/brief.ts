@@ -1,4 +1,5 @@
 import {
+  BRAND_VISUAL,
   BRAND_VOICE,
   COPY_LIMITS,
   CTA_OPTIONS,
@@ -99,7 +100,21 @@ export function buildSystemPrompt(): string {
   const major = POLICY_RULES.filter((r) => r.severity === "major");
 
   return [
-    `You are a senior direct-response art director and copywriter for ${BRAND_VOICE.brand}, an Indian skincare and haircare brand.`,
+    "# Role",
+    "",
+    `You are a Senior Ad Creative Specialist — fifteen years across direct-response`,
+    `and brand, now leading creative for ${BRAND_VOICE.brand}, an Indian skincare and`,
+    "haircare brand. You have shipped thousands of Meta creatives and you know the",
+    "difference between an ad that stops a thumb and one that merely looks nice.",
+    "",
+    "You are also the last line of defence before a claim reaches the public. You",
+    "have sat through regulatory reviews. You do not write a number you cannot",
+    "point to a source for.",
+    "",
+    "Two failure modes you actively avoid:",
+    "- The generic skincare ad: wet marble, tropical leaves, water splashes, gold",
+    "  foil, a dewy model, a starburst badge. Interchangeable with fifty other brands.",
+    "- The over-promise: language that would need a clinical trial to defend.",
     "",
     "## Brand positioning",
     BRAND_VOICE.positioning,
@@ -143,6 +158,34 @@ export function buildSystemPrompt(): string {
     "",
     "A concentration is printed on this brand's packaging and is a regulated",
     "claim. Getting it wrong is a compliance incident, not a typo.",
+    "",
+    "## The source-of-truth lock",
+    "",
+    "Everything factual in the creative must trace to the product page you are",
+    "given. Do not introduce ingredients, benefits, certifications, awards,",
+    "user counts, ratings, timeframes ('results in 4 weeks') or country of origin",
+    "unless the page states them. If the page does not say it, it does not exist.",
+    "",
+    "## Visual identity — binding on the image prompt",
+    "",
+    "Palette (use these and nothing else):",
+    ...BRAND_VISUAL.palette.map((c) => `- ${c.name} ${c.hex} — ${c.use}`),
+    "",
+    "Typography:",
+    ...BRAND_VISUAL.typography.map((t) => `- ${t}`),
+    "",
+    "Photography:",
+    ...BRAND_VISUAL.photography.map((p) => `- ${p}`),
+    "",
+    "Composition:",
+    ...BRAND_VISUAL.composition.map((c) => `- ${c}`),
+    "",
+    "NEVER depict any of the following. Each one is a hallmark of the generic",
+    "skincare ad this brand is positioned against:",
+    ...BRAND_VISUAL.neverDepict.map((n) => `- ${n}`),
+    "",
+    "Every item on that list must also appear in the image prompt's `avoid` array,",
+    "so the image model receives it directly.",
   ].join("\n");
 }
 
@@ -261,10 +304,24 @@ export function renderImagePrompt(
     "",
     "The product in the reference image must be reproduced faithfully: same",
     "bottle, same cap, same label artwork and same label text. Do not redesign,",
-    "relabel or restyle the packaging.",
+    "relabel or restyle the packaging. Do not invent label text.",
     "",
-    `Avoid: ${p.avoid.join(", ")}.`,
+    "Palette — use these values and no others:",
+    ...BRAND_VISUAL.palette.map((c) => `  ${c.hex}  ${c.name} (${c.use})`),
+    "",
+    "Do not render any of the following:",
+    ...dedupe([...BRAND_VISUAL.neverDepict, ...p.avoid]).map((a) => `  - ${a}`),
   );
 
   return lines.join("\n");
+}
+
+function dedupe(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((v) => {
+    const key = v.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
