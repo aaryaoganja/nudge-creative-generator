@@ -39,7 +39,14 @@ export const ImagePromptSchema = z.object({
   /** Exactly what the image model should render as visible text. */
   textToRender: z.array(z.string()).max(6),
   typography: z.string().min(1),
-  avoid: z.array(z.string()).max(10),
+  /**
+   * Concept-specific exclusions only. The brand-wide bans in
+   * BRAND_VISUAL.neverDepict are merged in by renderImagePrompt, so the model
+   * is not asked to restate them — it used to be, and since that list has
+   * exactly 10 entries and this cap was 10, a single concept-specific avoid
+   * made every generation fail schema validation.
+   */
+  avoid: z.array(z.string()).max(24),
 });
 
 export const ConceptBriefSchema = z.object({

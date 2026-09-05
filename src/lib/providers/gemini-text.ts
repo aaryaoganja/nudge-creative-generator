@@ -198,12 +198,62 @@ export class GeminiTextClient {
       );
     }
 
+    let value: T;
+    try {
+      value = validate(parseJsonLoosely(raw));
+    } catch (error) {
+      // A schema mismatch is a model-output problem, not a user problem. Raw
+      // Zod issue JSON reaching a marketer's screen is never acceptable, so
+      // translate it into one readable sentence here.
+      throw new GeminiTextError(describeSchemaFailure(error));
+    }
+
     return {
-      value: validate(parseJsonLoosely(raw)),
+      value,
       raw,
       usage: costOf(payload.usageMetadata),
       latencyMs: Date.now() - startedAt,
       model: this.model,
     };
   }
+}
+
+interface ZodLikeIssue {
+  path?: Array<string | number>;
+  message?: string;
+  code?: string;
+}
+
+/**
+ * Turns a Zod error into something a person can act on.
+ *
+ * `source` changes the wording only: a malformed request is the caller's to
+ * fix, while a malformed model reply is usually worth simply retrying. Telling
+ * a marketer to "try generating again" when they actually sent a bad field is
+ * unhelpful, and vice versa.
+ */
+export function describeSchemaFailure(
+  error: unknown,
+  source: "model" | "request" = "model",
+): string {
+  const issues = (error as { issues?: ZodLikeIssue[] })?.issues;
+
+  if (!Array.isArray(issues) || issues.length === 0) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return source === "request"
+      ? `The request was not valid: ${detail}`
+      : `The model's reply did not match the expected shape: ${detail}`;
+  }
+
+  const described = issues.slice(0, 3).map((issue) => {
+    const where = (issue.path ?? []).join(".") || "the response";
+    return `${where} — ${issue.message ?? issue.code ?? "invalid"}`;
+  });
+
+  const more = issues.length > 3 ? ` (and ${issues.length - 3} more)` : "";
+  const body = `${described.join("; ")}${more}`;
+
+  return source === "request"
+    ? `The request was not valid: ${body}.`
+    : `The model returned a reply this app could not accept: ${body}. Try generating again.`;
 }

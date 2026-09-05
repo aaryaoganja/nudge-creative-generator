@@ -257,25 +257,198 @@ button.ghost {
 
 .thumbs {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
   margin-top: 0.4rem;
 }
 
+.thumb-wrap {
+  position: relative;
+  width: 72px;
+}
+
 .thumb {
-  width: 60px;
-  height: 76px;
-  object-fit: cover;
+  width: 72px;
+  height: 90px;
   border-radius: var(--radius);
-  border: 2px solid transparent;
+  border: 2px solid var(--line);
   cursor: pointer;
-  background: var(--sand);
+  background: var(--sand) center / cover no-repeat;
   padding: 0;
   display: block;
 }
 
 .thumb[aria-pressed="true"] {
   border-color: var(--fg);
+}
+
+/* Order badge: with two references, which one is primary matters. */
+.thumb-order {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.thumb-zoom {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.85;
+}
+
+.thumb-zoom:hover {
+  opacity: 1;
+}
+
+/* ── custom select ─────────────────────────────────────────────────────── */
+
+.select {
+  position: relative;
+}
+
+.select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.select-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.select-caret {
+  margin-left: auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  flex: none;
+}
+
+.select-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.select-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.select-option.active {
+  background: var(--bg);
+}
+
+.select-option[aria-selected="true"] {
+  font-weight: 600;
+}
+
+.select-option[aria-selected="true"]::after {
+  content: "✓";
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+
+/* ── lightbox ──────────────────────────────────────────────────────────── */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(0 0 0 / 0.82);
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  border: none;
+}
+
+.lightbox img {
+  max-width: min(92vw, 900px);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background: var(--sand);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.lightbox-caption {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ece7df;
+  font-size: 0.8rem;
+  background: rgb(0 0 0 / 0.6);
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius);
 }
 
 /* ── results: the ad as it appears on Meta ────────────────────────────── */

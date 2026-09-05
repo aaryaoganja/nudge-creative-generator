@@ -81,17 +81,65 @@ async function run(theme) {
     const price = await page.locator(".price").innerText();
     check("price, compare-at and discount shown", /₹/.test(price), price.replace(/\s+/g, " "));
     check("reference thumbnails offered", (await page.locator(".thumb").count()) > 0);
+    // The dropdowns are in-page listboxes now, not native <select>, so the
+    // options only exist once the trigger is opened.
     check(
-      "placement is Meta 4:5",
-      (await page.locator("#placement option").first().innerText()).includes("1080×1350"),
+      "placement trigger shows Meta 4:5",
+      (await page.locator("#placement").innerText()).includes("1080×1350"),
+    );
+    await page.locator("#placement").click();
+    check(
+      "placement options render inside the page",
+      (await page.locator('[role="option"]').count()) > 0,
+    );
+    await page.keyboard.press("Escape");
+
+    // Image expansion: the marketer has to be able to tell a packshot from a
+    // lifestyle crop before committing spend.
+    await page.locator(".thumb-zoom").first().click();
+    await page.waitForSelector(".lightbox", { timeout: 5000 });
+    // Assert the dialog and its target, not pixel visibility: the CDN the
+    // reference images live on is unreachable from some sandboxes, and a
+    // blocked image would fail isVisible() while the lightbox works fine.
+    check(
+      "lightbox opens on zoom",
+      (await page.locator('.lightbox[role="dialog"]').count()) === 1 &&
+        (await page.locator(".lightbox img").getAttribute("src"))?.startsWith("http"),
     );
     check(
-      "cost shown before any spend",
-      /\$/.test(await page.locator(".cost").last().innerText()),
+      "lightbox shows a caption",
+      (await page.locator(".lightbox-caption").innerText()).includes("Image 1"),
     );
+    await page.keyboard.press("Escape");
+    check(
+      "lightbox closes on Escape",
+      (await page.locator(".lightbox").count()) === 0,
+    );
+
+    // Two references max, first one primary.
+    const thumbCount = await page.locator(".thumb").count();
+    if (thumbCount > 1) {
+      await page.locator(".thumb").nth(1).click();
+      check(
+        "second reference selectable",
+        (await page.locator(".thumb-order").count()) === 2,
+      );
+      if (thumbCount > 2) {
+        await page.locator(".thumb").nth(2).click();
+        check(
+          "reference selection capped at two",
+          (await page.locator(".thumb-order").count()) === 2,
+        );
+      }
+    }
+    const costText = await page.locator(".cost").last().innerText();
+    check("cost shown before any spend", /\$/.test(costText), costText.replace(/\s+/g, " "));
+    // USD only — the rupee figure was a hardcoded conversion pretending to be real.
+    check("cost is USD only", !costText.includes("₹"), costText.replace(/\s+/g, " "));
   }
 
-  await page.locator("#concepts").fill("2");
+  await page.locator("#concepts").click();
+  await page.locator('[role="option"]', { hasText: "2 concepts" }).click();
   await page.locator("button.primary", { hasText: /Generate/ }).click();
   await page.waitForSelector(".adcard", { timeout: 90000 });
   await page.waitForTimeout(600);

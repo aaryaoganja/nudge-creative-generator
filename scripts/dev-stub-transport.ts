@@ -102,6 +102,18 @@ const PRODUCT_JS = {
       width: 1103,
       height: 1600,
     },
+    {
+      position: 2,
+      src: "https://cdn.shopify.com/s/files/1/0410/9608/5665/files/frame_03.jpg?v=1",
+      width: 1100,
+      height: 1600,
+    },
+    {
+      position: 3,
+      src: "https://cdn.shopify.com/s/files/1/0410/9608/5665/files/frame_05.jpg?v=1",
+      width: 1100,
+      height: 1600,
+    },
   ],
 };
 

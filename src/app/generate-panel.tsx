@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "./select";
+import { Lightbox } from "./lightbox";
 
 /**
  * Generation flow: URL → confirm → brief → creatives.
@@ -13,7 +15,8 @@ import { useState } from "react";
  */
 
 const IMAGE_COST_USD = 0.134;
-const USD_TO_INR = 88; // display only; billing is in USD
+const BRIEF_COST_USD = 0.008;
+const MAX_REFERENCES = 2;
 
 interface Claims {
   concentrations: string[];
@@ -22,11 +25,17 @@ interface Claims {
   discountPct: number | null;
 }
 
+interface ProductImage {
+  src: string;
+  width: number | null;
+  height: number | null;
+}
+
 interface Snapshot {
   title: string;
   productType: string | null;
   descriptionText: string | null;
-  images: { src: string; width: number | null; height: number | null }[];
+  images: ProductImage[];
   concentrations: number[];
 }
 
@@ -50,10 +59,28 @@ interface Result {
   copy: { headline: string; subhead: string; primaryText: string; cta: string };
   policy: { verdict: string; findings: PolicyFinding[] };
   prompt: string;
-  image: { dataUrl: string; width: number | null; height: number | null; bytes: number } | null;
+  image: {
+    dataUrl: string;
+    width: number | null;
+    height: number | null;
+    bytes: number;
+  } | null;
   placementCheck?: { ok: boolean; failures: string[]; warnings: string[] };
   error?: string;
 }
+
+const OBJECTIVES = [
+  { value: "awareness", label: "Awareness", hint: "introduce the active" },
+  { value: "consideration", label: "Consideration", hint: "why this formula" },
+  { value: "conversion", label: "Conversion", hint: "outcome + offer" },
+  { value: "retargeting", label: "Retargeting", hint: "assumes awareness" },
+];
+
+const CONCEPT_OPTIONS = [1, 2, 3, 4].map((n) => ({
+  value: String(n),
+  label: `${n} concept${n > 1 ? "s" : ""}`,
+  hint: `$${(n * IMAGE_COST_USD + BRIEF_COST_USD).toFixed(2)}`,
+}));
 
 export function GeneratePanel() {
   const [url, setUrl] = useState("");
@@ -65,7 +92,12 @@ export function GeneratePanel() {
   const [claims, setClaims] = useState<Claims | null>(null);
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [placementId, setPlacementId] = useState("meta_feed_4x5");
-  const [refIndex, setRefIndex] = useState(0);
+
+  // Ordered: the first entry is the primary reference the model anchors on.
+  const [refIndexes, setRefIndexes] = useState<number[]>([0]);
+  const [zoomed, setZoomed] = useState<{ src: string; caption: string } | null>(
+    null,
+  );
 
   const [objective, setObjective] = useState("conversion");
   const [concepts, setConcepts] = useState(2);
@@ -95,12 +127,28 @@ export function GeneratePanel() {
       setSnapshot(data.snapshot);
       setClaims(data.claims);
       setPlacements(data.placements);
-      setRefIndex(0);
+      // The first product image is the packshot on practically every Shopify
+      // storefront, so it is the default reference.
+      setRefIndexes([0]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setResolving(false);
     }
+  }
+
+  function toggleReference(index: number) {
+    setRefIndexes((current) => {
+      if (current.includes(index)) {
+        // Never leave the selection empty — the model needs an anchor.
+        return current.length === 1 ? current : current.filter((i) => i !== index);
+      }
+      if (current.length >= MAX_REFERENCES) {
+        // Drop the oldest, keeping selection order meaningful.
+        return [...current.slice(1), index];
+      }
+      return [...current, index];
+    });
   }
 
   async function generate() {
@@ -118,7 +166,7 @@ export function GeneratePanel() {
           concepts,
           offer: offer || undefined,
           angleHint: angleHint || undefined,
-          referenceImageIndex: refIndex,
+          referenceImageIndexes: refIndexes,
         }),
       });
       const data = await response.json();
@@ -133,7 +181,7 @@ export function GeneratePanel() {
     }
   }
 
-  const estimate = concepts * IMAGE_COST_USD + 0.008;
+  const estimate = concepts * IMAGE_COST_USD + BRIEF_COST_USD;
 
   return (
     <>
@@ -178,7 +226,8 @@ export function GeneratePanel() {
               </span>
             </div>
             <p className="sub" style={{ marginTop: "0.25rem" }}>
-              {snapshot.productType ?? "Uncategorised"} · {snapshot.images.length} images
+              {snapshot.productType ?? "Uncategorised"} · {snapshot.images.length}{" "}
+              images
             </p>
 
             {claims.concentrations.length > 0 && (
@@ -191,86 +240,101 @@ export function GeneratePanel() {
             )}
 
             <div className="field">
-              <label>Reference photograph — the real product the model must match</label>
+              <label>
+                Reference photograph — pick up to {MAX_REFERENCES}. Click ⤢ to
+                enlarge.
+              </label>
               <div className="thumbs">
-                {snapshot.images.slice(0, 8).map((image, index) => (
-                  <button
-                    key={image.src}
-                    type="button"
-                    className="thumb"
-                    aria-pressed={refIndex === index}
-                    onClick={() => setRefIndex(index)}
-                    title={`Image ${index + 1}`}
-                    style={{
-                      backgroundImage: `url(${image.src})`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }}
-                  />
-                ))}
+                {snapshot.images.map((image, index) => {
+                  const order = refIndexes.indexOf(index);
+                  return (
+                    <div className="thumb-wrap" key={image.src}>
+                      <button
+                        type="button"
+                        className="thumb"
+                        aria-pressed={order !== -1}
+                        aria-label={`Use image ${index + 1} as reference`}
+                        onClick={() => toggleReference(index)}
+                        style={{ backgroundImage: `url(${image.src})` }}
+                      />
+                      {order !== -1 && (
+                        <span className="thumb-order">{order + 1}</span>
+                      )}
+                      <button
+                        type="button"
+                        className="thumb-zoom"
+                        aria-label={`Enlarge image ${index + 1}`}
+                        onClick={() =>
+                          setZoomed({
+                            src: image.src,
+                            caption: `Image ${index + 1} of ${snapshot.images.length}${
+                              image.width && image.height
+                                ? ` · ${image.width}×${image.height}`
+                                : ""
+                            }`,
+                          })
+                        }
+                      >
+                        ⤢
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
+              <p className="sub" style={{ marginTop: "0.4rem" }}>
+                {refIndexes.length === 1
+                  ? "1 reference selected — the model matches this packaging exactly."
+                  : `${refIndexes.length} references selected — badge 1 is the primary anchor.`}
+              </p>
             </div>
           </section>
 
           <section className="card">
             <h2>Brief</h2>
             <div className="row">
-              <div className="field">
-                <label htmlFor="placement">Placement</label>
-                <select
-                  id="placement"
-                  value={placementId}
-                  onChange={(e) => setPlacementId(e.target.value)}
-                >
-                  {placements.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label} · {p.width}×{p.height}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="objective">Objective</label>
-                <select
-                  id="objective"
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                >
-                  <option value="awareness">Awareness</option>
-                  <option value="consideration">Consideration</option>
-                  <option value="conversion">Conversion</option>
-                  <option value="retargeting">Retargeting</option>
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="concepts">Concepts</label>
-                <input
-                  id="concepts"
-                  type="number"
-                  min={1}
-                  max={4}
-                  value={concepts}
-                  onChange={(e) => setConcepts(Number(e.target.value))}
-                />
-              </div>
+              <Select
+                id="placement"
+                label="Placement"
+                value={placementId}
+                onChange={setPlacementId}
+                options={placements.map((p) => ({
+                  value: p.id,
+                  label: p.label,
+                  hint: `${p.width}×${p.height}`,
+                }))}
+              />
+              <Select
+                id="objective"
+                label="Objective"
+                value={objective}
+                onChange={setObjective}
+                options={OBJECTIVES}
+              />
+              <Select
+                id="concepts"
+                label="Concepts"
+                value={String(concepts)}
+                onChange={(v) => setConcepts(Number(v))}
+                options={CONCEPT_OPTIONS}
+              />
             </div>
             <div className="row">
               <div className="field">
-                <label htmlFor="offer">Offer — printed verbatim (optional)</label>
+                <label htmlFor="offer">Offer — printed verbatim, never paraphrased</label>
                 <input
                   id="offer"
                   type="text"
-                  placeholder="20% off"
+                  placeholder="e.g. 20% off, Buy 2 Get 1"
                   value={offer}
                   onChange={(e) => setOffer(e.target.value)}
                 />
               </div>
               <div className="field">
-                <label htmlFor="angle">Angle hint (optional)</label>
+                <label htmlFor="angle">Angle — steer the creative direction</label>
                 <input
                   id="angle"
                   type="text"
-                  placeholder="lead with the anti-grey benefit"
+                  placeholder="e.g. lead with SPF 50, monsoon skin"
                   value={angleHint}
                   onChange={(e) => setAngleHint(e.target.value)}
                 />
@@ -279,11 +343,13 @@ export function GeneratePanel() {
             <div className="actions">
               <button className="primary" onClick={generate} disabled={generating}>
                 {generating && <span className="spin" />}
-                {generating ? "Generating…" : `Generate ${concepts} creative${concepts > 1 ? "s" : ""}`}
+                {generating
+                  ? "Generating…"
+                  : `Generate ${concepts} creative${concepts > 1 ? "s" : ""}`}
               </button>
               <span className="cost">
-                ≈ ${estimate.toFixed(2)} (₹{Math.round(estimate * USD_TO_INR)}) ·{" "}
-                {concepts} image{concepts > 1 ? "s" : ""} at ${IMAGE_COST_USD}
+                ≈ ${estimate.toFixed(2)} · {concepts} image
+                {concepts > 1 ? "s" : ""} at ${IMAGE_COST_USD.toFixed(3)}
               </span>
             </div>
           </section>
@@ -324,17 +390,31 @@ export function GeneratePanel() {
 
           <div className="results">
             {results.map((result, index) => (
-              <AdCard key={index} result={result} />
+              <AdCard key={index} result={result} onZoom={setZoomed} />
             ))}
           </div>
         </>
+      )}
+
+      {zoomed && (
+        <Lightbox
+          src={zoomed.src}
+          caption={zoomed.caption}
+          onClose={() => setZoomed(null)}
+        />
       )}
     </>
   );
 }
 
 /** Renders the creative the way it will appear in a Meta feed. */
-function AdCard({ result }: { result: Result }) {
+function AdCard({
+  result,
+  onZoom,
+}: {
+  result: Result;
+  onZoom: (image: { src: string; caption: string }) => void;
+}) {
   const verdictClass =
     result.policy.verdict === "pass"
       ? "pass"
@@ -356,7 +436,18 @@ function AdCard({ result }: { result: Result }) {
 
       {result.image ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="ad-image" src={result.image.dataUrl} alt={result.concept.name} />
+        <img
+          className="ad-image"
+          src={result.image.dataUrl}
+          alt={result.concept.name}
+          style={{ cursor: "zoom-in" }}
+          onClick={() =>
+            onZoom({
+              src: result.image!.dataUrl,
+              caption: `${result.concept.name} · ${result.image!.width}×${result.image!.height}`,
+            })
+          }
+        />
       ) : (
         <div className="ad-image" style={{ display: "grid", placeItems: "center" }}>
           <span className="sub" style={{ padding: "1rem", textAlign: "center" }}>
@@ -424,3 +515,4 @@ function AdCard({ result }: { result: Result }) {
     </article>
   );
 }
+

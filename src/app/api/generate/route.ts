@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ShopifyClient, ShopifyFetchError } from "@/lib/scrape/shopify";
 import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { safeFetchBinary, FetchRejectedError } from "@/lib/http/safe-fetch";
-import { GeminiTextClient } from "@/lib/providers/gemini-text";
+import { GeminiTextClient, describeSchemaFailure } from "@/lib/providers/gemini-text";
 import { GeminiImageProvider } from "@/lib/providers/gemini-image";
 import { ImageProviderError } from "@/lib/providers/image";
 import { generateBrief, renderImagePrompt } from "@/lib/pipeline/brief";
@@ -28,8 +28,12 @@ const RequestSchema = z.object({
   offer: z.string().max(120).optional(),
   angleHint: z.string().max(300).optional(),
   audience: z.string().max(200).optional(),
-  /** Index into the product's own images, chosen at the confirmation step. */
-  referenceImageIndex: z.number().int().min(0).max(20).default(0),
+  /**
+   * Indexes into the product's own images, chosen at the confirmation step.
+   * Capped at two: more reference images dilute what the model anchors on, and
+   * the first image is the packshot in practically every case.
+   */
+  referenceImageIndexes: z.array(z.number().int().min(0).max(20)).min(1).max(2).default([0]),
 });
 
 export async function POST(request: Request) {
@@ -42,8 +46,9 @@ export async function POST(request: Request) {
 
   const parsed = RequestSchema.safeParse(payload);
   if (!parsed.success) {
+    // Raw Zod issue JSON is not an error message a person can act on.
     return NextResponse.json(
-      { error: "Invalid request", issues: parsed.error.issues },
+      { error: describeSchemaFailure(parsed.error, "request") },
       { status: 422 },
     );
   }
@@ -126,20 +131,34 @@ export async function POST(request: Request) {
       );
     }
 
-    // ── reference photograph, from the product page ───────────────────────
-    const reference =
-      snapshot.images[input.referenceImageIndex] ?? snapshot.images[0];
-    if (!reference) {
+    // ── reference photographs, from the product page ──────────────────────
+    // The first product image is the packshot on practically every Shopify
+    // storefront, so an empty selection defaults to it rather than erroring.
+    const chosen = input.referenceImageIndexes
+      .map((index) => snapshot.images[index])
+      .filter((image): image is NonNullable<typeof image> => Boolean(image));
+    const references = chosen.length > 0 ? chosen : snapshot.images.slice(0, 1);
+
+    if (references.length === 0) {
       return NextResponse.json(
         { error: "This product page has no images to use as a reference." },
         { status: 422 },
       );
     }
-    const referenceBytes = await safeFetchBinary(reference.src, {
-      allowedHosts: config.IMAGE_CDN_HOSTS,
-      accept: "image/*",
-      maxBytes: 12 * 1024 * 1024,
-    });
+
+    const referenceImages = await Promise.all(
+      references.map(async (image) => {
+        const fetched = await safeFetchBinary(image.src, {
+          allowedHosts: config.IMAGE_CDN_HOSTS,
+          accept: "image/*",
+          maxBytes: 12 * 1024 * 1024,
+        });
+        return {
+          bytes: fetched.data,
+          mimeType: fetched.contentType?.split(";")[0] ?? "image/jpeg",
+        };
+      }),
+    );
 
     // ── generate ──────────────────────────────────────────────────────────
     const imageProvider = new GeminiImageProvider(
@@ -157,13 +176,7 @@ export async function POST(request: Request) {
           prompt,
           aspectRatio: "4:5",
           resolution: "2K",
-          referenceImages: [
-            {
-              bytes: referenceBytes.data,
-              mimeType:
-                referenceBytes.contentType?.split(";")[0] ?? "image/jpeg",
-            },
-          ],
+          referenceImages,
         });
         imageSpend += IMAGE_COST_USD;
 
@@ -225,6 +238,7 @@ export async function POST(request: Request) {
         chars: page?.markdown.length ?? 0,
         warning: enrichmentWarning,
       },
+      referenceImages: references.map((image) => image.src),
     });
   } catch (error) {
     if (error instanceof FetchRejectedError) {
