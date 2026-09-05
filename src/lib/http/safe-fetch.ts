@@ -45,6 +45,14 @@ export interface SafeFetchResult {
   bytes: number;
 }
 
+export interface SafeFetchBinaryResult {
+  url: string;
+  status: number;
+  contentType: string | null;
+  data: Uint8Array;
+  bytes: number;
+}
+
 const DEFAULTS = {
   maxBytes: 8 * 1024 * 1024,
   timeoutMs: 15_000,
@@ -182,10 +190,52 @@ export async function assertUrlIsFetchable(
   return url;
 }
 
+/**
+ * Same guarantees as safeFetch, but returns raw bytes.
+ *
+ * Product photography lives on the Shopify CDN, so fetching a reference image
+ * crosses to a different host than the storefront. That host still goes through
+ * the allowlist — see IMAGE_CDN_HOSTS — rather than being trusted because a
+ * storefront response happened to mention it.
+ */
+export async function safeFetchBinary(
+  raw: string,
+  options: SafeFetchOptions,
+): Promise<SafeFetchBinaryResult> {
+  const result = await fetchWithGuards(raw, options);
+  return {
+    url: result.url,
+    status: result.status,
+    contentType: result.contentType,
+    data: result.data,
+    bytes: result.data.byteLength,
+  };
+}
+
 export async function safeFetch(
   raw: string,
   options: SafeFetchOptions,
 ): Promise<SafeFetchResult> {
+  const result = await fetchWithGuards(raw, options);
+  const body = Buffer.from(result.data).toString("utf8");
+  return {
+    url: result.url,
+    status: result.status,
+    contentType: result.contentType,
+    body,
+    bytes: result.data.byteLength,
+  };
+}
+
+async function fetchWithGuards(
+  raw: string,
+  options: SafeFetchOptions,
+): Promise<{
+  url: string;
+  status: number;
+  contentType: string | null;
+  data: Uint8Array;
+}> {
   const maxBytes = options.maxBytes ?? DEFAULTS.maxBytes;
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
   const maxRedirects = options.maxRedirects ?? DEFAULTS.maxRedirects;
@@ -222,13 +272,11 @@ export async function safeFetch(
         continue;
       }
 
-      const body = await readCapped(response, maxBytes, url.href);
       return {
         url: url.href,
         status: response.status,
         contentType: response.headers.get("content-type"),
-        body,
-        bytes: Buffer.byteLength(body),
+        data: await readCapped(response, maxBytes, url.href),
       };
     }
 
@@ -245,7 +293,7 @@ async function readCapped(
   response: Response,
   maxBytes: number,
   href: string,
-): Promise<string> {
+): Promise<Uint8Array> {
   // Trust the header when present, but never *only* the header — a lying or
   // absent Content-Length must not get past the cap.
   const declared = Number(response.headers.get("content-length"));
@@ -256,7 +304,7 @@ async function readCapped(
     );
   }
 
-  if (!response.body) return "";
+  if (!response.body) return new Uint8Array(0);
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -276,5 +324,5 @@ async function readCapped(
     chunks.push(value);
   }
 
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
 }

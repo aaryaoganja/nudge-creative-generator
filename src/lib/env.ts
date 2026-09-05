@@ -40,6 +40,13 @@ const schema = z.object({
   /** Default storefront used when a command is not given an explicit origin. */
   STORE_ORIGIN: z.string().url().default("https://beminimalist.co"),
 
+  /**
+   * Product photography lives on a different host to the storefront. It gets
+   * its own allowlist rather than being trusted because a storefront response
+   * happened to mention it.
+   */
+  IMAGE_CDN_HOSTS: csv("cdn.shopify.com"),
+
   /** Shopify's JSON endpoints do not report currency; the storefront implies it. */
   STORE_CURRENCY: z.string().length(3).default("INR"),
 
