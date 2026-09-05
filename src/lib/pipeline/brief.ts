@@ -1,13 +1,18 @@
 import {
+  ARCHETYPE_NAMES,
   BRAND_MARK_GUIDANCE,
   BRAND_VISUAL,
   BRAND_VOICE,
   COPY_LIMITS,
+  CREATIVE_GRAMMAR,
   CTA_OPTIONS,
   HOOK_PATTERNS,
   OBJECTIVE_GUIDANCE,
   POLICY_RULES,
   PRICE_DISPLAY_GUIDANCE,
+  archetypeByName,
+  archetypesFor,
+  orientationOf,
   type BrandMark,
   type Objective,
   type PriceDisplay,
@@ -82,6 +87,7 @@ const RESPONSE_SCHEMA = {
           imagePrompt: {
             type: "object",
             properties: {
+              layoutArchetype: { type: "string", enum: [...ARCHETYPE_NAMES] },
               scene: { type: "string" },
               composition: { type: "string" },
               lighting: { type: "string" },
@@ -92,6 +98,7 @@ const RESPONSE_SCHEMA = {
               avoid: { type: "array", items: { type: "string" } },
             },
             required: [
+              "layoutArchetype",
               "scene",
               "composition",
               "lighting",
@@ -194,6 +201,41 @@ export function buildSystemPrompt(): string {
     "",
     "Composition:",
     ...BRAND_VISUAL.composition.map((c) => `- ${c}`),
+    "",
+    "## The creative grammar — how this brand actually assembles a creative",
+    "",
+    "Everything above says what a creative may be MADE OF. This says how the",
+    "brand puts those parts together, and it is the difference between a",
+    "tasteful product shot on white and an ad that looks like the ones already",
+    "running. The live creatives are closer to a spec sheet than a photograph.",
+    "",
+    CREATIVE_GRAMMAR.summary,
+    "",
+    "Ground:",
+    ...CREATIVE_GRAMMAR.ground.map((g) => `- ${g}`),
+    "",
+    "Type hierarchy:",
+    ...CREATIVE_GRAMMAR.typeHierarchy.map((t) => `- ${t}`),
+    "",
+    "Props — the complete vocabulary. Nothing outside this list appears in frame:",
+    ...CREATIVE_GRAMMAR.props.map(
+      (p) => `- **${p.name}** — ${p.description} Use when: ${p.useWhen}`,
+    ),
+    "",
+    "Graphic devices, with their construction rules:",
+    ...CREATIVE_GRAMMAR.devices.flatMap((d) => [
+      `- **${d.name}** — ${d.what}`,
+      `  Use when: ${d.useWhen}`,
+      ...d.rules.map((r) => `    · ${r}`),
+    ]),
+    "",
+    "Call to action — pick the treatment the layout calls for:",
+    ...CREATIVE_GRAMMAR.ctaTreatments.map(
+      (c) => `- **${c.name}** (${c.useWhen}) — ${c.description}`,
+    ),
+    "",
+    "Restraint — the rules that stop this vocabulary becoming clutter:",
+    ...CREATIVE_GRAMMAR.restraint.map((r) => `- ${r}`),
     "",
     "NEVER depict any of the following. Each one is a hallmark of the generic",
     "skincare ad this brand is positioned against:",
@@ -303,6 +345,27 @@ export function buildUserPrompt(input: BriefInput): string {
     "## Price",
     PRICE_DISPLAY_GUIDANCE[input.priceDisplay ?? "price_only"],
     "",
+    "## Layout — pick one archetype per concept",
+    "",
+    `This creative is ${placement.width}×${placement.height} (${placement.ratio}), a ${orientationOf(placement.width, placement.height).toUpperCase()} frame.`,
+    "Only the layouts below can be built in it. Set `layoutArchetype` to one of",
+    "these names EXACTLY — the construction rules are expanded from it and sent",
+    "to the image model, so a name outside this list loses them.",
+    "",
+    ...archetypesFor(placement.width, placement.height).flatMap((a) => [
+      `### ${a.name}`,
+      `Use when: ${a.useWhen}`,
+      a.description,
+      orientationOf(placement.width, placement.height) === "tall" && a.stacked
+        ? `In THIS frame: ${a.stacked}`
+        : "",
+      `Reading order: ${a.readingOrder.join(" → ")}`,
+      `Devices: ${a.usesDevices.join("; ")}`,
+      "",
+    ]),
+    "Where several concepts are requested, prefer a different archetype for each.",
+    "Two concepts in the same layout with different words are one concept.",
+    "",
     "## Image prompt",
     "",
     "For each concept also write an image prompt for a generative image model.",
@@ -353,6 +416,8 @@ export function renderImagePrompt(
   placement: PlacementSpec,
 ): string {
   const p = brief.imagePrompt;
+  const orientation = orientationOf(placement.width, placement.height);
+
   const lines = [
     `A ${placement.width}×${placement.height} advertising creative for a premium, minimal skincare brand.`,
     "",
@@ -363,6 +428,51 @@ export function renderImagePrompt(
     `Product placement: ${p.productPlacement}`,
     `Typography: ${p.typography}`,
   ];
+
+  /*
+   * The brand's own layout, expanded from the name the brief chose.
+   *
+   * This is the section that makes the output look like the client's live
+   * banners rather than like a competent stock creative. It is placed above the
+   * model's own composition line on purpose: where the two disagree, the
+   * brand's grammar is the one that has to win.
+   *
+   * Only the devices this archetype names are expanded. Shipping all six would
+   * both cost prompt budget on every image and contradict the restraint rule
+   * that caps a creative at two devices besides the CTA.
+   */
+  const archetype = archetypeByName(p.layoutArchetype);
+  if (archetype) {
+    lines.push(
+      "",
+      `Layout — ${archetype.name}. Build the frame exactly this way:`,
+      archetype.description,
+    );
+    if (orientation === "tall" && archetype.stacked) {
+      lines.push(archetype.stacked);
+    }
+    lines.push(`Reading order, largest to smallest: ${archetype.readingOrder.join(" → ")}.`);
+
+    const devices = archetype.usesDevices
+      .map((name) => CREATIVE_GRAMMAR.devices.find((d) => d.name === name))
+      .filter((d): d is NonNullable<typeof d> => Boolean(d));
+    if (devices.length > 0) {
+      lines.push(
+        "",
+        "Graphic devices available to this layout — use at most two, built to these rules:",
+        ...devices.flatMap((d) => [
+          `  ${d.name}: ${d.what}`,
+          ...d.rules.map((r) => `    - ${r}`),
+        ]),
+      );
+    }
+
+    lines.push(
+      "",
+      "Hold these regardless of anything above:",
+      ...CREATIVE_GRAMMAR.restraint.map((r) => `  - ${r}`),
+    );
+  }
 
   if (p.textToRender.length > 0) {
     lines.push(
@@ -381,7 +491,14 @@ export function renderImagePrompt(
     "relabel or restyle the packaging. Do not invent label text.",
     "",
     "Palette — use these values and no others:",
-    ...BRAND_VISUAL.palette.map((c) => `  ${c.hex}  ${c.name} (${c.use})`),
+    // A null hex is the product accent, which has no fixed value: it is sampled
+    // from the pack in the reference photograph. Saying so reads correctly;
+    // printing the prose in the hex column, as this used to, does not.
+    ...BRAND_VISUAL.palette.map((c) =>
+      c.hex
+        ? `  ${c.hex}  ${c.name} (${c.use})`
+        : `  (no fixed value)  ${c.name} — ${c.use}`,
+    ),
     "",
     "Do not render any of the following:",
     ...dedupe([...BRAND_VISUAL.neverDepict, ...p.avoid]).map((a) => `  - ${a}`),

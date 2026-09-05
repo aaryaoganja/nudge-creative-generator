@@ -22,8 +22,12 @@ import type { GeminiTextClient, TextResult } from "../providers/gemini-text.ts";
  * Layered, cheapest and most certain first:
  *   1. deterministic  — format, dimensions, file size (pure functions, free)
  *   2. lexicon        — banned phrases over vision-extracted text (free)
- *   3. vision         — brand fit, composition, generic-ad detection
+ *   3. vision         — brand identity, brand fit, composition, generic-ad detection
  *   4. aggregation    — weighted score, plus hard gates that cannot be averaged away
+ *
+ * One of those gates zeroes the number rather than only the verdict: a creative
+ * that belongs to a different company is not a weak ad for this brand, it is not
+ * an ad for this brand at all. See `aggregate`.
  */
 
 export const DIMENSIONS = [
@@ -54,6 +58,21 @@ export const FindingSchema = z.object({
   verified: z.boolean(),
 });
 
+/**
+ * Whose creative is this?
+ *
+ * Answered before anything is scored, because it decides whether the rest of the
+ * review means anything. `confidence` is nominally 0–1; see
+ * `normalisedConfidence` for why it is not constrained here.
+ */
+export const BrandIdentitySchema = z.object({
+  isThisBrand: z.boolean(),
+  /** Named only when a wordmark is legible — a guess here is worse than null. */
+  detectedBrand: z.string().nullable(),
+  confidence: z.number(),
+  evidence: z.string(),
+});
+
 export const VisionScoreSchema = z.object({
   extractedText: z.array(z.string()),
   dimensionScores: z.object({
@@ -65,6 +84,17 @@ export const VisionScoreSchema = z.object({
   }),
   readsAsGenericSkincareAd: z.boolean(),
   genericMarkers: z.array(z.string()),
+  /**
+   * Optional in the parse but required on the wire (see SCORER_RESPONSE_SCHEMA). A
+   * model that omits the field has told us nothing, and "nothing" must fall
+   * through to a normal review rather than either crashing the whole score or
+   * being read as an accusation that the upload is someone else's.
+   */
+  brandIdentity: BrandIdentitySchema.optional(),
+  /**
+   * A DIFFERENT failure from `brandIdentity.isThisBrand: false` — this is our
+   * creative with someone else's pack or logo somewhere in the frame.
+   */
   competingBrandVisible: z.boolean(),
   findings: z.array(FindingSchema),
   doMore: z.array(z.string()).max(5),
@@ -73,6 +103,7 @@ export const VisionScoreSchema = z.object({
 });
 
 export type VisionScore = z.infer<typeof VisionScoreSchema>;
+export type BrandIdentity = z.infer<typeof BrandIdentitySchema>;
 export type ScoreFinding = z.infer<typeof FindingSchema>;
 
 export interface ScoreResult {
@@ -89,9 +120,43 @@ export interface ScoreResult {
   usage: TextResult<VisionScore>["usage"];
 }
 
-const RESPONSE_SCHEMA = {
+/*
+ * Field order is load-bearing, not cosmetic.
+ *
+ * The model writes this object one field at a time, and each field it has
+ * already written conditions the next. The system prompt tells it to decide
+ * whose creative this is FIRST, because every judgement below depends on the
+ * answer — but brandIdentity used to sit fifth in the schema, after the
+ * dimension scores. The model was therefore scoring brand fit, clarity and
+ * craft against Minimalist's identity BEFORE it had decided the ad was The
+ * Ordinary's, and then had to contradict its own numbers.
+ *
+ * brandIdentity is first here, and `propertyOrdering` states the sequence
+ * explicitly because JSON object key order is not something to leave to
+ * chance across model versions.
+ */
+export const SCORER_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
+    brandIdentity: {
+      type: "object",
+      properties: {
+        isThisBrand: { type: "boolean" },
+        detectedBrand: { type: "string", nullable: true },
+        confidence: {
+          type: "number",
+          // Stated in the schema as well as the prompt. A model that answers on
+          // a 0–100 scale here trips the wrong-brand gate at a hundredth of the
+          // confidence it meant; normalisedConfidence() is the net, but the net
+          // should not be the only thing holding the scale.
+          minimum: 0,
+          maximum: 1,
+        },
+        evidence: { type: "string" },
+      },
+      required: ["isThisBrand", "detectedBrand", "confidence", "evidence"],
+      propertyOrdering: ["isThisBrand", "detectedBrand", "confidence", "evidence"],
+    },
     extractedText: { type: "array", items: { type: "string" } },
     dimensionScores: {
       type: "object",
@@ -122,6 +187,19 @@ const RESPONSE_SCHEMA = {
     summary: { type: "string" },
   },
   required: [
+    "brandIdentity",
+    "extractedText",
+    "dimensionScores",
+    "readsAsGenericSkincareAd",
+    "genericMarkers",
+    "competingBrandVisible",
+    "findings",
+    "doMore",
+    "doLess",
+    "summary",
+  ],
+  propertyOrdering: [
+    "brandIdentity",
     "extractedText",
     "dimensionScores",
     "readsAsGenericSkincareAd",
@@ -165,6 +243,46 @@ export function buildScorerSystemPrompt(): string {
     ...[...BRAND_VISUAL.photography, ...BRAND_VISUAL.composition].map(
       (p) => `- ${p}`,
     ),
+    "",
+    `## What ${BRAND_VOICE.brand} packaging looks like`,
+    "",
+    "You cannot tell whose creative you are looking at without knowing the pack:",
+    "- White or amber-glass dropper bottles, and plain white tubes. Nothing",
+    "  colour-blocked, nothing metallic, no ornament on the pack itself",
+    `- A lowercase \`${BRAND_VOICE.brand.toLowerCase()}\` wordmark, set small and quiet — never a`,
+    "  monogram, never a serif logotype, never inside a badge or roundel",
+    "- A thin coloured rule directly under the product name, colour-coded to the",
+    "  range the product belongs to",
+    "- The active and its concentration printed on the front, at the largest size",
+    "  on the label: '10% Niacinamide', '2% Salicylic Acid', '15.6% hair actives'",
+    "- A clinical spec-sheet block on the label — actives and their percentages,",
+    "  pH, net volume — set like a datasheet rather than like beauty copy",
+    "",
+    "## Whose creative is this?",
+    "",
+    "Decide this FIRST, before you score anything. Packaging, wordmark,",
+    "typography and palette together tell you whether the creative is",
+    `${BRAND_VOICE.brand}'s. If it is plainly another company's ad — their pack,`,
+    "their logotype, their type and colour — say so plainly: set",
+    "`brandIdentity.isThisBrand` false, name the company in `detectedBrand` when",
+    "its wordmark or pack is legible, and quote what you saw in `evidence`.",
+    "`confidence` is 0–1 and refers to that judgement, not to the ad's quality.",
+    "",
+    "Set `isThisBrand` false only on positive evidence of another brand. A",
+    "creative with no pack, no wordmark and nothing else to go on is not another",
+    "brand's — it is unattributed. Leave `isThisBrand` true there, set",
+    "`confidence` at or below 0.3, and say in `evidence` that there was no signal.",
+    "`detectedBrand` is null unless you can actually read the name.",
+    "",
+    "Three judgements that look alike and are not:",
+    "- WRONG BRAND — the whole creative belongs to another company. It scores 0",
+    "  outright. There is no partial credit for reviewing someone else's ad.",
+    `- CONTAMINATION — a ${BRAND_VOICE.brand} creative with a competitor's pack,`,
+    "  logo or wordmark somewhere in the frame. That is `competingBrandVisible`:",
+    "  it blocks the creative but keeps its score, because it is one fixable",
+    "  defect in an otherwise real creative.",
+    `- GENERIC — ours, but so interchangeable it could carry anyone's logo. That`,
+    "  is `readsAsGenericSkincareAd`, below: a weakness, not a block.",
     "",
     "## The generic-skincare-ad test",
     "",
@@ -276,13 +394,62 @@ export function buildScorerUserPrompt(
 }
 
 /**
+ * Below this the model is guessing, and a guess must not zero a real creative.
+ * Wrong on the cautious side costs a reviewer one confusing finding; wrong on
+ * the eager side tells a marketer their own ad is a competitor's.
+ */
+export const WRONG_BRAND_CONFIDENCE = 0.6;
+
+/**
+ * Confidence is asked for on a 0–1 scale, in both the prompt and the response
+ * schema, but models answer in percent often enough to matter. Normalising
+ * means an "85" slip still reads as high confidence instead of nonsense;
+ * rejecting the value outright would throw away an entire paid review over one
+ * field.
+ *
+ * The value exactly 1 is genuinely ambiguous — "certain" on the requested scale,
+ * or "1% sure" on a percent scale — and it is read here as CERTAIN. That is a
+ * decision, not an oversight. `confidence` is only ever consulted alongside an
+ * affirmative `isThisBrand: false`, and a model that names a competitor, writes
+ * evidence for it, and then rates itself 1% sure is incoherent; a model asked
+ * for 0–1 that answers 1 when it means certain is routine. Everything in (1,100]
+ * divides, so a genuinely uncertain 2–59 still falls below the gate.
+ */
+function normalisedConfidence(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(1, Math.max(0, raw > 1 ? raw / 100 : raw));
+}
+
+/**
+ * True when the upload is another company's ad rather than ours.
+ *
+ * Deliberately narrow: it fires only on an affirmative `isThisBrand: false`
+ * held with real confidence. A missing assessment, an unattributed creative or
+ * a low-confidence hunch all fall through to a normal review.
+ */
+export function isWrongBrandUpload(vision: VisionScore): boolean {
+  const identity = vision.brandIdentity;
+  if (!identity || identity.isThisBrand) return false;
+  return normalisedConfidence(identity.confidence) >= WRONG_BRAND_CONFIDENCE;
+}
+
+/**
  * Weighted score. Hard gates are applied to the VERDICT, never to the number,
  * so a policy violation cannot be averaged away by a beautiful picture.
+ *
+ * The wrong-brand gate is the one exception, and it zeroes the number too. A
+ * competitor's ad has no partial credit to award: its craft and clarity are
+ * real but they are not this brand's, so averaging them into 62 would read as
+ * "nearly there" about a creative that can never run. Note the contrast with
+ * `competingBrandVisible` below, which blocks but keeps its score — that is our
+ * creative with a fixable defect, not somebody else's creative.
  */
 export function aggregate(
   vision: VisionScore,
   deterministicFailures: string[],
 ): { overall: number; verdict: ScoreResult["verdict"] } {
+  if (isWrongBrandUpload(vision)) return { overall: 0, verdict: "blocked" };
+
   const overall = Math.round(
     DIMENSIONS.reduce(
       (sum, d) => sum + vision.dimensionScores[d] * WEIGHTS[d],
@@ -303,6 +470,64 @@ export function aggregate(
     overall < 70;
 
   return { overall, verdict: major ? "fix_required" : "pass" };
+}
+
+/** A named brand reads very differently from "some other brand" — only use one we can read. */
+function namedBrand(identity: BrandIdentity): string | null {
+  const name = identity.detectedBrand?.trim();
+  return name ? name : null;
+}
+
+/**
+ * The finding that explains a 0. It leads the report, so it says what the
+ * creative is, why that is not fixable, and what to upload instead — a reviewer
+ * who reads only the first finding should already know what to do next.
+ */
+function wrongBrandFinding(identity: BrandIdentity): ScoreFinding {
+  const other = namedBrand(identity);
+  return {
+    severity: "blocking",
+    dimension: "brand_fit",
+    observation: [
+      other
+        ? `This is not a ${BRAND_VOICE.brand} creative — it is an ad for ${other}.`
+        : // Deliberately does NOT enumerate "the packaging, wordmark and type",
+          // as it once did. When detectedBrand is null the model could not read
+          // a name, and asserting which specific elements are another brand's is
+          // a fact we do not have. The evidence line that follows says what it
+          // actually saw; the finding should not add to it.
+          `This is not a ${BRAND_VOICE.brand} creative — the brand cues in it are somebody else's.`,
+      identity.evidence.trim(),
+    ]
+      .filter(Boolean)
+      .join(" "),
+    action:
+      `Upload the ${BRAND_VOICE.brand} creative you meant to review. Nothing here ` +
+      `can be fixed into an on-brand ad: this reviewer checks ${BRAND_VOICE.brand} ` +
+      `advertising against ${BRAND_VOICE.brand}'s identity and India's ad rules, and ` +
+      `has no useful verdict to give on another company's creative.`,
+    verified: true,
+  };
+}
+
+function wrongBrandSummary(identity: BrandIdentity): string {
+  const other = namedBrand(identity);
+  return [
+    other
+      ? `0/100 — this creative is not ${BRAND_VOICE.brand}'s. It is ${other}'s.`
+      : `0/100 — this creative is not ${BRAND_VOICE.brand}'s.`,
+    identity.evidence.trim(),
+    `Nothing else in this report applies until a ${BRAND_VOICE.brand} creative is uploaded.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function zeroedDimensions(): Record<Dimension, number> {
+  return Object.fromEntries(DIMENSIONS.map((d) => [d, 0])) as Record<
+    Dimension,
+    number
+  >;
 }
 
 export interface ScoreInput {
@@ -326,7 +551,7 @@ export async function scoreCreative(
         input.snapshot,
         input.pageMarkdown,
       ),
-      responseSchema: RESPONSE_SCHEMA,
+      responseSchema: SCORER_RESPONSE_SCHEMA,
       temperature: 0,
       images: [input.image],
     },
@@ -356,6 +581,9 @@ export async function scoreCreative(
     });
   }
 
+  // Contamination, not a wrong upload: OUR creative with someone else's mark in
+  // the frame. It blocks but keeps its number, because removing the mark leaves
+  // a creative that still deserves the 84 it earned. Contrast the gate below.
   if (vision.value.competingBrandVisible) {
     findings.push({
       severity: "blocking",
@@ -366,17 +594,42 @@ export async function scoreCreative(
     });
   }
 
+  const identity = vision.value.brandIdentity;
+  const wrongBrand =
+    identity && isWrongBrandUpload(vision.value) ? identity : null;
+
+  if (wrongBrand) {
+    // Unshifted, not pushed: sort() is stable, so this stays the first thing
+    // read. Every other finding is advice about a creative that will never run.
+    findings.unshift(wrongBrandFinding(wrongBrand));
+  }
+
   const { overall, verdict } = aggregate(vision.value, placementCheck.failures);
   const order = { blocking: 0, major: 1, minor: 2 } as const;
 
   return {
     overall,
     verdict,
-    dimensionScores: vision.value.dimensionScores,
+    // The bars are zeroed with the overall for the same reason it is: a 0/100
+    // headline beside an 85 brand-fit bar reads as a bug, and those marks were
+    // a judgement of someone else's creative in the first place.
+    dimensionScores: wrongBrand
+      ? zeroedDimensions()
+      : vision.value.dimensionScores,
     findings: findings.sort((a, b) => order[a.severity] - order[b.severity]),
-    doMore: vision.value.doMore,
-    doLess: vision.value.doLess,
-    summary: vision.value.summary,
+    // Replaced, not passed through. These render as "Do more of / Do less of"
+    // next to a 0, and the model wrote them about a creative that is not this
+    // brand's — "lean further into the amber-glass packaging" is advice to a
+    // competitor's art director. There is exactly one action available here.
+    doMore: wrongBrand
+      ? [`Upload the ${BRAND_VOICE.brand} creative you meant to review.`]
+      : vision.value.doMore,
+    doLess: wrongBrand ? [] : vision.value.doLess,
+    // The summary is the one line most people read. It must not say "on-brand
+    // and compliant" about a competitor's ad.
+    summary: wrongBrand
+      ? wrongBrandSummary(wrongBrand)
+      : vision.value.summary,
     extractedText: vision.value.extractedText,
     deterministic: {
       failures: placementCheck.failures,

@@ -4,7 +4,13 @@ import { useState } from "react";
 import { Select } from "./select";
 import { Lightbox } from "./lightbox";
 import { PlacementPicker, Chips } from "./multi-select";
-import { placementsSorted, limitsFor, OFFER_PRESETS, ANGLE_PRESETS } from "../../config/placements";
+import {
+  placementsSorted,
+  defaultPlacementIds,
+  limitsFor,
+  OFFER_PRESETS,
+  ANGLE_PRESETS,
+} from "../../config/placements";
 
 /**
  * Generation flow: URL → confirm → brief → creatives.
@@ -93,7 +99,14 @@ export function GeneratePanel() {
 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [claims, setClaims] = useState<Claims | null>(null);
-  const [placementIds, setPlacementIds] = useState<string[]>(["meta_feed_4x5"]);
+  /*
+   * The opening selection comes from the catalogue, not from a literal here.
+   * config/placements.ts already owns which rows exist and which two a marketer
+   * actually buys; a hardcoded "meta_feed_4x5" in this file meant renaming a row
+   * would leave the picker opening on an id that no longer exists — and it made
+   * defaultPlacementIds() a function nothing called.
+   */
+  const [placementIds, setPlacementIds] = useState<string[]>(defaultPlacementIds);
   const allPlacements = placementsSorted();
 
   // Confirmation-step corrections. Empty means "use what was scraped".

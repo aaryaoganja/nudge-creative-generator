@@ -1,0 +1,313 @@
+/*
+ * The two screens that sit outside the app proper: the password gate and the
+ * key override.
+ *
+ * A CSS module rather than more globals.css, because these classes are used by
+ * two routes and nothing else — and because the login screen is the one page a
+ * stranger can reach, so its layout should not be reachable from, or breakable
+ * by, the app's shared stylesheet.
+ *
+ * Colours come from the global tokens so the gate and the app are one system,
+ * with literal fallbacks after each var(): this page has to render correctly
+ * even in the failure case where the global stylesheet did not load, since a
+ * password field on an unstyled white page looks exactly like a phishing form.
+ */
+
+.gate {
+  color-scheme: dark;
+  min-height: 78dvh;
+  background: var(--ground, #0a0a0a);
+  color: var(--text, #f4f1ec);
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 3rem 1.25rem 4rem;
+}
+
+/* The key page is a working surface, not a doorway: it sits high, not centred. */
+.top {
+  justify-content: flex-start;
+  padding-top: 3rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/*
+ * A reserved box for a cross-origin asset of unknown intrinsic width — without
+ * it the lockup is one width before the mark decodes and another after, which
+ * is layout shift on the first thing a visitor sees.
+ */
+.logoSlot {
+  display: inline-flex;
+  align-items: center;
+  min-width: 72px;
+  height: 20px;
+  flex: none;
+}
+
+/* What the mark degrades to when nudge.new cannot be reached. */
+.logoFallback {
+  font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text, #f4f1ec);
+}
+
+.by {
+  font-size: 0.78rem;
+  color: var(--muted, #8c8a85);
+}
+
+/*
+ * Same treatment as the nav, from the same token — see globals.css
+ * --logo-filter for why it is polarity-blind. The literal fallback repeats it
+ * because this page has to render correctly even if globals.css never loaded.
+ */
+.logo {
+  height: 20px;
+  width: auto;
+  display: block;
+  filter: var(--logo-filter, brightness(0) invert(1));
+  opacity: 0.92;
+}
+
+/*
+ * The product name, not a caption. It used to be uppercase, letterspaced and
+ * --muted, which made sense when the borrowed mark led the lockup; now that
+ * "Ad Studio" leads it, the two would be the wrong way round.
+ */
+.wordmark {
+  font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text, #f4f1ec);
+}
+
+.panel {
+  width: 100%;
+  max-width: 25rem;
+  background: var(--surface, #121211);
+  border: 1px solid var(--line, #262624);
+  border-radius: 10px;
+  padding: 1.7rem 1.6rem 1.6rem;
+}
+
+.wide {
+  max-width: 34rem;
+}
+
+.title {
+  font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.35rem;
+}
+
+.lede {
+  color: var(--text-2, #c9c6c0);
+  font-size: 0.88rem;
+  margin: 0 0 1.35rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted, #8c8a85);
+  margin-bottom: 0.4rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  background: var(--raised, #1f1f1d);
+  border: 1px solid var(--line-strong, #33332f);
+  border-radius: 6px;
+  color: var(--text, #f4f1ec);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+/*
+ * --muted, not --dim. Placeholder text is text: WCAG asks 4.5:1 for it, and
+ * --dim on --raised measures 3.2:1. --muted is 4.8:1 on the same ground. The
+ * placeholder on this page is the format hint for an API key, so a user who
+ * cannot read it cannot tell whether they pasted the right kind of string.
+ */
+.input::placeholder {
+  color: var(--muted, #8c8a85);
+  opacity: 1;
+}
+
+.input:focus-visible,
+.button:focus-visible,
+.ghost:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--accent, #d9a85c);
+  outline-offset: 2px;
+}
+
+/*
+ * Monospace for the key: a pasted credential gets read character by character
+ * when it is wrong, which a proportional face makes needlessly hard.
+ */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.button {
+  width: 100%;
+  margin-top: 1.1rem;
+  padding: 0.7rem 1rem;
+  background: var(--accent, #d9a85c);
+  color: var(--ground, #0a0a0a);
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ghost {
+  padding: 0.55rem 0.9rem;
+  background: none;
+  border: 1px solid var(--line-strong, #33332f);
+  border-radius: 6px;
+  color: var(--text-2, #c9c6c0);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--text, #f4f1ec);
+  border-color: var(--dim, #6e6c68);
+}
+
+.ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1.1rem;
+}
+
+/*
+ * Wrong-password copy. Loud enough to be read, plain enough not to editorialise
+ * — the user mistyped; they need the fact, not an apology.
+ */
+.error {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--stop, #ff8a80);
+  border-radius: 6px;
+  color: var(--stop, #ff8a80);
+  font-size: 0.85rem;
+}
+
+.done {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line-strong, #33332f);
+  border-radius: 6px;
+  color: var(--ok, #7fb588);
+  font-size: 0.85rem;
+}
+
+/* ── key status ────────────────────────────────────────────────────────── */
+
+.status {
+  border: 1px solid var(--line, #262624);
+  border-radius: 8px;
+  background: var(--ground, #0a0a0a);
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.35rem;
+}
+
+.statusRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.statusLabel {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #8c8a85);
+}
+
+.badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  color: var(--text-2, #c9c6c0);
+}
+
+.badgeOn {
+  color: var(--accent, #d9a85c);
+}
+
+.badgeOff {
+  color: var(--stop, #ff8a80);
+}
+
+.suffix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88rem;
+  color: var(--text, #f4f1ec);
+}
+
+.note {
+  color: var(--muted, #8c8a85);
+  font-size: 0.8rem;
+  margin: 0.5rem 0 0;
+}
+
+.foot {
+  color: var(--muted, #8c8a85);
+  font-size: 0.78rem;
+  text-align: center;
+  margin: 0;
+}
+
+.link {
+  color: var(--text-2, #c9c6c0);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-strong, #33332f);
+}
+
+.link:hover {
+  color: var(--text, #f4f1ec);
+}

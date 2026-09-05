@@ -14,6 +14,7 @@ import { newRunId, recordRun } from "@/lib/run";
 import { checkPolicy } from "@/lib/policy/check";
 import { checkPlacement } from "@/lib/image/meta";
 import { env } from "@/lib/env";
+import { geminiKeyForRequest } from "@/lib/runtime-key";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -126,9 +127,15 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!config.GEMINI_API_KEY) {
+  // The session override from /keys wins over the deployment's own key, so this
+  // is "no key from either source" rather than "no key in the environment".
+  const geminiKey = await geminiKeyForRequest(request);
+  if (!geminiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is not configured on the server." },
+      {
+        error:
+          "No Gemini key is available. Set GEMINI_API_KEY on the deployment, or paste a key at /keys to use your own for this session.",
+      },
       { status: 503 },
     );
   }
@@ -169,10 +176,7 @@ export async function POST(request: Request) {
     );
 
     // ── brief ─────────────────────────────────────────────────────────────
-    const text = new GeminiTextClient(
-      config.GEMINI_API_KEY,
-      config.GEMINI_TEXT_MODEL,
-    );
+    const text = new GeminiTextClient(geminiKey, config.GEMINI_TEXT_MODEL);
     const brief = await generateBrief(text, {
       snapshot,
       claims,
@@ -246,7 +250,7 @@ export async function POST(request: Request) {
 
     // ── generate ──────────────────────────────────────────────────────────
     const imageProvider = new GeminiImageProvider(
-      config.GEMINI_API_KEY,
+      geminiKey,
       config.GEMINI_IMAGE_MODEL,
     );
 

@@ -71,6 +71,13 @@ export default defineRailway((ctx) => {
 
       // Secrets: set once in the Railway dashboard, then kept as-is by IaC.
       // Without preserve() they would have to live in this file, in git.
+      //
+      // APP_PASSWORD is the gate. It MUST be listed here: this env block is
+      // declarative, so a variable set in the dashboard but absent from the map
+      // is liable to be dropped by `railway config apply` — at which point the
+      // gate silently falls back to the default that is published in this
+      // repository, and the deployment is effectively open.
+      APP_PASSWORD: preserve(),
       GEMINI_API_KEY: preserve(),
       FIRECRAWL_API_KEY: preserve(),
     },

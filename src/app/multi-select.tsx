@@ -56,6 +56,16 @@ export function PlacementPicker({
           <div className="picker-items">
             {group.items.map((placement) => {
               const on = selected.includes(placement.id);
+              /*
+               * "Facebook & Instagram feed" over "Facebook & Instagram" is a
+               * stutter, not a second fact. The surface line earns its space
+               * only where it says something the label does not — which is
+               * Google, where "Display landscape" gives no clue that the asset
+               * feeds Responsive Display and Performance Max.
+               */
+              const surfaceAddsSomething = !placement.label
+                .toLowerCase()
+                .includes(placement.surface.toLowerCase());
               return (
                 <label
                   className={`picker-item${on ? " on" : ""}`}
@@ -73,7 +83,9 @@ export function PlacementPicker({
                         {placement.width}×{placement.height} · {placement.ratio}
                       </span>
                     </span>
-                    <span className="picker-note">{placement.surface}</span>
+                    {surfaceAddsSomething && (
+                      <span className="picker-note">{placement.surface}</span>
+                    )}
                     {placement.note && (
                       <span className="picker-note dim">{placement.note}</span>
                     )}

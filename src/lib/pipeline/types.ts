@@ -31,6 +31,20 @@ export const CopySchema = z.object({
 });
 
 export const ImagePromptSchema = z.object({
+  /**
+   * Which of the brand's layouts this concept is built in, BY NAME.
+   *
+   * A name rather than prose, because the construction rules that separate this
+   * brand's banner from a generic one — 1px leader lines, sharp-cornered
+   * callout boxes, the specification set inside the headline — are too long and
+   * too easily paraphrased away to leave to the model. It picks; renderImagePrompt
+   * expands the entry from CREATIVE_GRAMMAR verbatim.
+   *
+   * Not a z.enum: the catalogue lives in config/brand.ts and a rename there must
+   * not become a validation failure here. An unrecognised name degrades to the
+   * model's own `composition` line, which is what the prompt did before.
+   */
+  layoutArchetype: z.string().min(1).max(60),
   scene: z.string().min(1),
   composition: z.string().min(1),
   lighting: z.string().min(1),
@@ -42,9 +56,10 @@ export const ImagePromptSchema = z.object({
   /**
    * Concept-specific exclusions only. The brand-wide bans in
    * BRAND_VISUAL.neverDepict are merged in by renderImagePrompt, so the model
-   * is not asked to restate them — it used to be, and since that list has
-   * exactly 10 entries and this cap was 10, a single concept-specific avoid
-   * made every generation fail schema validation.
+   * is not asked to restate them — it used to be, and since the cap was set to
+   * the exact length of that list, a single concept-specific avoid made every
+   * generation fail schema validation. The cap is now well clear of it; do not
+   * tie it back to BRAND_VISUAL.neverDepict.length.
    */
   avoid: z.array(z.string()).max(24),
 });

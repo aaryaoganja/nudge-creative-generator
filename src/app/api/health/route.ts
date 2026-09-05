@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { env, hasDatabase } from "@/lib/env";
 
@@ -42,8 +44,30 @@ function deployment() {
   };
 }
 
+/**
+ * This route is reachable without a session — Railway's prober has no cookie
+ * jar, and a probe that fails takes the whole deployment out of rotation.
+ *
+ * The middleware used to answer it directly with a hardcoded 200, which meant
+ * the health check reported "ok" for a build whose route handlers could not
+ * load at all. It passes through now, so reaching this code IS the liveness
+ * signal — and the redaction that used to justify the short-circuit happens
+ * here instead: an anonymous caller learns that the service is up and nothing
+ * else. Commit SHAs, provider booleans and database errors are for whoever can
+ * sign in.
+ */
 export async function GET() {
   const startedAt = Date.now();
+
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const authenticated = await verifySessionToken(token);
+
+  if (!authenticated) {
+    return NextResponse.json(
+      { status: "ok", authenticated: false },
+      { status: 200, headers: { "cache-control": "no-store" } },
+    );
+  }
 
   let database: "reachable" | "unreachable" | "not_configured" = "not_configured";
   let databaseError: string | null = null;
@@ -75,7 +99,8 @@ export async function GET() {
 
   return NextResponse.json({
     status: "ok",
-    // Present in every response so a stale deployment identifies itself.
+    authenticated: true,
+    // Present in every signed-in response so a stale deployment identifies itself.
     deployment: deployment(),
     // Bumped whenever the shape of this response changes, so a client can tell
     // an old build from a new one even if the git vars are unavailable.

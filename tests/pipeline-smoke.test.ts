@@ -73,13 +73,16 @@ const BRIEF_JSON = {
         cta: "Shop Now",
       },
       imagePrompt: {
-        scene: "A single serum bottle on a warm sand-toned plaster surface",
-        composition: "Centred, generous negative space above and below",
-        lighting: "Soft directional daylight from the upper left, long soft shadow",
-        palette: "Warm sand, bone white, deep charcoal type",
-        productPlacement: "Lower third, upright, label facing camera",
+        layoutArchetype: "Formula callout",
+        scene:
+          "A single serum bottle on a matte white cylindrical pedestal on flat white",
+        composition:
+          "Type stack upper third, product centre, outlined CTA below; 40% of the frame left empty",
+        lighting: "Even diffuse light, one short soft grey contact shadow",
+        palette: "Paper white ground, Ink type, Graphite body copy",
+        productPlacement: "Centre, upright, label facing camera",
         textToRender: ["15.6% ACTIVES"],
-        typography: "Clean geometric sans, tight tracking, charcoal on sand",
+        typography: "Geometric sans, heavy headline over a lighter second line",
         avoid: ["other brands", "human faces", "watermarks", "clutter"],
       },
     },
@@ -96,6 +99,7 @@ const BRIEF_JSON = {
         cta: "Buy Now",
       },
       imagePrompt: {
+        layoutArchetype: "Single plinth",
         scene: "Bottle on marble",
         composition: "Centred",
         lighting: "Hard studio light",

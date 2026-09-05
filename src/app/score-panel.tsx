@@ -176,24 +176,36 @@ export function ScorePanel() {
             )}
           </section>
 
-          <div className="results">
-            <section className="card">
-              <h2>Do more of this</h2>
-              <ul className="plain">
-                {score.doMore.map((item, i) => (
-                  <li key={i}>{item}</li>
-                ))}
-              </ul>
-            </section>
-            <section className="card">
-              <h2>Do less of this</h2>
-              <ul className="plain">
-                {score.doLess.map((item, i) => (
-                  <li key={i}>{item}</li>
-                ))}
-              </ul>
-            </section>
-          </div>
+          {/*
+            Each card renders only if it has something in it. A wrong-brand
+            upload deliberately clears doLess — there is one action available
+            and it is "upload the right file" — and an empty bordered box
+            headed "Do less of this" reads as a panel that failed to load.
+          */}
+          {(score.doMore.length > 0 || score.doLess.length > 0) && (
+            <div className="results">
+              {score.doMore.length > 0 && (
+                <section className="card">
+                  <h2>Do more of this</h2>
+                  <ul className="plain">
+                    {score.doMore.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {score.doLess.length > 0 && (
+                <section className="card">
+                  <h2>Do less of this</h2>
+                  <ul className="plain">
+                    {score.doLess.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          )}
 
           <section className="card">
             <h2>Findings — most severe first</h2>

@@ -8,6 +8,7 @@ import { PLACEMENTS_BY_ID } from "@/lib/pipeline/types";
 import { newRunId, recordRun } from "@/lib/run";
 import { readImageMeta } from "@/lib/image/meta";
 import { env } from "@/lib/env";
+import { geminiKeyForRequest } from "@/lib/runtime-key";
 import type { ProductSnapshot } from "@/lib/scrape/shopify";
 
 export const dynamic = "force-dynamic";
@@ -128,9 +129,14 @@ export async function POST(request: Request) {
   }
 
   const config = env();
-  if (!config.GEMINI_API_KEY) {
+  // The session override from /keys wins over the deployment's own key.
+  const geminiKey = await geminiKeyForRequest(request);
+  if (!geminiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is not configured on the server." },
+      {
+        error:
+          "No Gemini key is available. Set GEMINI_API_KEY on the deployment, or paste a key at /keys to use your own for this session.",
+      },
       { status: 503 },
     );
   }
@@ -164,10 +170,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const client = new GeminiTextClient(
-      config.GEMINI_API_KEY,
-      config.GEMINI_TEXT_MODEL,
-    );
+    const client = new GeminiTextClient(geminiKey, config.GEMINI_TEXT_MODEL);
     const result = await scoreCreative(client, {
       image: { bytes: parsed.bytes, mimeType: parsed.mimeType },
       placement,

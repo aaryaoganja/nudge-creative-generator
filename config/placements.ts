@@ -6,6 +6,14 @@
  * limits for its platform, because a headline that fits Meta at 40 characters
  * is truncated by Google at 30, and discovering that at upload time is too late.
  *
+ * ONE ROW PER SIZE, not per surface. A row costs a render, and two rows at the
+ * same pixel size buy the identical file twice — so Meta's feed square and
+ * carousel card are one 1080×1080 row, and Threads rides the 1080×1350 feed row
+ * because its spec follows Instagram's exactly. Where a size serves several
+ * surfaces the label says so, which is why Meta rows need no separate surface
+ * or hint line to read. Google keeps its hints: "required asset" versus
+ * "optional" is the difference between an ad that serves and one that doesn't.
+ *
  * Verified against current 2026 platform guidance. Two changes worth knowing:
  * Instagram's scrollable Explore feed was removed in January 2026 and that
  * inventory now delivers through Reels, and Stories/Reels safe zones were
@@ -37,8 +45,9 @@ export const COPY_LIMITS: Record<Platform, CopyLimits> = {
 export interface PlacementSpec {
   id: string;
   platform: Platform;
+  /** Carries the surfaces this size runs on, so it reads without a second line. */
   label: string;
-  /** Where it runs, in the words a marketer uses. */
+  /** The apps behind the label, for grouping and filters. */
   surface: string;
   width: number;
   height: number;
@@ -46,7 +55,7 @@ export interface PlacementSpec {
   maxBytes: number;
   /** Ordered so the most-used placements sit at the top of the picker. */
   priority: number;
-  /** Shown as a hint; explains why you'd pick this one. */
+  /** Google only — which assets are required rather than optional. */
   note?: string;
   /** Vertical formats lose the top and bottom to platform chrome. */
   safeZone?: string;
@@ -59,63 +68,38 @@ export const PLACEMENTS: PlacementSpec[] = [
   {
     id: "meta_feed_4x5",
     platform: "meta",
-    label: "Meta Feed",
-    surface: "Facebook & Instagram feed",
+    label: "Facebook & Instagram feed",
+    surface: "Facebook & Instagram",
     width: 1080,
     height: 1350,
     ratio: "4:5",
     maxBytes: 30 * MB,
     priority: 1,
-    note: "Meta's primary recommendation — takes the most mobile screen",
-  },
-  {
-    id: "meta_feed_1x1",
-    platform: "meta",
-    label: "Meta Feed square",
-    surface: "Facebook & Instagram feed",
-    width: 1080,
-    height: 1080,
-    ratio: "1:1",
-    maxBytes: 30 * MB,
-    priority: 3,
-    note: "Safe everywhere, but loses roughly a third of the screen against 4:5",
   },
   {
     id: "meta_story_9x16",
     platform: "meta",
-    label: "Stories & Reels",
-    surface: "Instagram and Facebook, full screen",
+    label: "Instagram & Facebook full screen",
+    surface: "Instagram & Facebook",
     width: 1080,
     height: 1920,
     ratio: "9:16",
     maxBytes: 30 * MB,
     priority: 2,
-    note: "Explore inventory now delivers through Reels, so vertical matters more",
+    // The one hint Meta keeps: chrome eats the edges, and a headline placed
+    // there is lost at delivery rather than at review.
     safeZone: "Keep text clear of the top 14% and bottom 20% — platform chrome",
   },
   {
-    id: "meta_carousel_1x1",
+    id: "meta_feed_1x1",
     platform: "meta",
-    label: "Carousel card",
-    surface: "Facebook & Instagram carousel",
+    label: "Facebook & Instagram feed & carousel",
+    surface: "Facebook & Instagram",
     width: 1080,
     height: 1080,
     ratio: "1:1",
     maxBytes: 30 * MB,
-    priority: 5,
-    note: "Every card must be square and read on its own",
-  },
-  {
-    id: "threads_4x5",
-    platform: "meta",
-    label: "Threads",
-    surface: "Threads feed",
-    width: 1080,
-    height: 1350,
-    ratio: "4:5",
-    maxBytes: 30 * MB,
-    priority: 7,
-    note: "Rolled out globally in 2026; specs follow Instagram feed",
+    priority: 3,
   },
 
   // ── Google ─────────────────────────────────────────────────────────────
@@ -140,7 +124,7 @@ export const PLACEMENTS: PlacementSpec[] = [
     height: 1200,
     ratio: "1:1",
     maxBytes: 5 * MB,
-    priority: 6,
+    priority: 5,
     note: "Required asset alongside landscape",
   },
   {
@@ -152,7 +136,7 @@ export const PLACEMENTS: PlacementSpec[] = [
     height: 1500,
     ratio: "4:5",
     maxBytes: 5 * MB,
-    priority: 8,
+    priority: 6,
     note: "Optional, but widens where the ad can serve",
   },
 ];
@@ -162,6 +146,24 @@ export const PLACEMENTS_BY_ID: Record<string, PlacementSpec> =
 
 export function placementsSorted(): PlacementSpec[] {
   return [...PLACEMENTS].sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * The selection the picker opens on.
+ *
+ * A preselection is an opening offer to edit, not an answer: the two Meta
+ * surfaces a marketer actually buys — the 4:5 feed unit and the 9:16 full
+ * screen — so the first run returns something usable and the rest of the list
+ * still reads as a choice. Preselecting everything quietly bills six images per
+ * concept; preselecting one hides that the other sizes exist.
+ */
+export function defaultPlacementIds(): string[] {
+  const ids = ["meta_feed_4x5", "meta_story_9x16"].filter(
+    (id) => id in PLACEMENTS_BY_ID,
+  );
+  // Renaming a row must not leave the picker empty and the generate button
+  // dead, so fall back to whatever sits at the top of the catalogue.
+  return ids.length > 0 ? ids : placementsSorted().slice(0, 1).map((p) => p.id);
 }
 
 /**

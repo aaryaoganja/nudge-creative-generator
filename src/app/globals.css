@@ -1,90 +1,305 @@
 /*
- * Minimal design system, aligned to the brand tokens in config/brand.ts.
- * Bone and sand grounds, ink type, one accent. No decoration that isn't
- * carrying information — the tool should look like the brand it serves.
+ * Ad Studio by Nudge — design system.
+ *
+ * Lifted from the client's own product surface, so the tool and the product it
+ * serves read as one thing: near-black grounds, bone type, hairline structure,
+ * one warm amber. Dark-first and dark-only — the palette below IS the design,
+ * not a variant of a light one, so there is no prefers-color-scheme block and
+ * no [data-theme] override. Because there is no second scheme to fall back on,
+ * every surface and every colour is painted explicitly (including html/body)
+ * rather than inherited from the host ground.
+ *
+ * ── Accent budget ─────────────────────────────────────────────────────────
+ * --accent is the only chromatic colour in the system outside the semantic
+ * ok/stop pair. It is spent in exactly one place per view: the primary action
+ * button. The focus ring reuses it because a focus ring is transient and
+ * functional rather than decorative, and --warn is an alias for it because a
+ * warning is the one other thing allowed to interrupt. Everything else —
+ * active tabs, selected chips, meter fills, badges — is bone or grey. If a new
+ * amber shows up somewhere, one of these has to give it up.
+ *
+ * ── Contrast, measured ────────────────────────────────────────────────────
+ * WCAG AA body text needs 4.5:1. Every pairing used for text:
+ *
+ *   --text     #f4f1ec  on --ground 17.6  on --surface 16.6  on --raised 14.7
+ *   --text-2   #c9c6c0  on --ground 11.6  on --surface 11.0  on --raised  9.7
+ *   --muted    #8c8a85  on --ground  5.7  on --surface  5.4  on --raised  4.8
+ *   --dim      #6e6c68  on --ground  3.8  on --surface  3.6  on --raised  3.2
+ *   --accent   #d9a85c  on --ground  9.2  on --surface  8.7  on --raised  7.6
+ *   --ok       #7fb588  on --ground  8.4  on --surface  7.9  on --raised  7.0
+ *   --stop     #ff8a80  on --ground  8.7  on --surface  8.2  on --raised  7.2
+ *   --ground   #0a0a0a  on --accent  9.2  on --text    17.6
+ *
+ * --dim FAILS 4.5:1 everywhere, so it never carries a word a user has to read.
+ * It is confined to: the select caret (pure decoration), disabled control text
+ * (explicitly exempt from the contrast requirement), the spinner ring, and the
+ * minor-finding rule — all non-text uses, and all still clear the 3:1 bar that
+ * non-text UI has to meet.
+ *
+ * --muted on --raised is 4.8:1 — it passes, but with no margin, so --raised
+ * surfaces carrying secondary copy use --text-2 instead wherever the copy is
+ * something the user is meant to act on.
  */
 
 :root {
-  --bone: #f4f1ec;
-  --sand: #e8e1d7;
-  --surface: #ffffff;
-  --ink: #1a1a1a;
-  --graphite: #6b6b6b;
-  --hairline: #d9d2c7;
+  /* The whole system, dark, in one place. */
+  --ground: #0a0a0a;
+  --surface: #121211;
+  --raised: #1f1f1d;
+  --line: #262624;
+  --line-strong: #33332f;
 
-  --ok: #2f6f4f;
-  --warn: #8a6a1f;
-  --stop: #9b2c22;
-  --accent: #1a1a1a;
+  --text: #f4f1ec;
+  --text-2: #c9c6c0;
+  --muted: #8c8a85;
+  --dim: #6e6c68;
 
-  --bg: var(--bone);
-  --fg: var(--ink);
-  --muted: var(--graphite);
+  --accent: #d9a85c;
+  --ok: #7fb588;
+  --stop: #ff8a80;
+  /* A warning is the accent doing semantic work, not a sixth colour. */
+  --warn: var(--accent);
+
+  /*
+   * Aliases for the names the components were written against. Keeping them
+   * means this is a re-skin, not a rename — inline styles like score-panel's
+   * `border: 1px solid var(--line)` keep resolving without being touched.
+   */
+  --bg: var(--ground);
+  --fg: var(--text);
   --card: var(--surface);
-  --line: var(--hairline);
 
-  --radius: 4px;
+  /* The reference creatives are square-cornered; nothing here rounds past 3px. */
+  --radius: 3px;
   --gap: 1rem;
-}
 
-:root:not([data-theme="light"]) {
-  @media (prefers-color-scheme: dark) {
-    --bg: #141311;
-    --fg: #ece7df;
-    --muted: #9a938a;
-    --card: #1c1b18;
-    --line: #302d28;
-    --ok: #6fbf8f;
-    --warn: #d3ad55;
-    --stop: #e2705f;
-    --accent: #ece7df;
-  }
-}
+  /*
+   * next/font sets --font-display and --font-body on <html> to a stack that
+   * already ends in the fallbacks declared in layout.tsx. The var() fallbacks
+   * here are the second net: if the font CSS never arrives, the declaration is
+   * still valid and the page renders in the system grotesque instead of
+   * collapsing to the browser default serif.
+   */
+  --display: var(--font-display, "Outfit"), "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --body: var(--font-body, "Figtree"), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-:root[data-theme="dark"] {
-  --bg: #141311;
-  --fg: #ece7df;
-  --muted: #9a938a;
-  --card: #1c1b18;
-  --line: #302d28;
-  --ok: #6fbf8f;
-  --warn: #d3ad55;
-  --stop: #e2705f;
-  --accent: #ece7df;
+  /*
+   * How the borrowed Nudge mark is painted on our ground. One token, used by
+   * both surfaces that render it (the top nav and the gate), because they had
+   * drifted: the gate inverted it and the nav did not, so the same file was
+   * black in one place and white in the other — and at least one of those was
+   * invisible against a #0a0a0a background.
+   *
+   * `brightness(0)` crushes every opaque pixel to black and `invert(1)` lifts
+   * it to white, leaving alpha untouched. That is deliberately polarity-blind:
+   * dark-ink, light-ink and full-colour versions of the file all land on the
+   * same bone as the wordmark beside it, which is the treatment a partner mark
+   * gets in a monochrome dark system anyway. It also means the bar cannot be
+   * broken by the asset being swapped upstream for the other polarity.
+   *
+   * The one case it does not survive is a mark exported on an opaque white
+   * plate rather than transparency — that would paint a white rectangle. If
+   * that is what nudge.new serves, set this to `none` and give .topnav-logo a
+   * light chip instead.
+   */
+  --logo-filter: brightness(0) invert(1);
+
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* Painted on html as well as body: with no light scheme to fall back to, an
+   unpainted root would let a light host ground show through on overscroll. */
+html {
+  background: var(--ground);
+}
+
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--body);
   font-size: 14px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── top navigation ────────────────────────────────────────────────────── */
+
+/*
+ * Full-bleed bar, but its contents track .shell's measure so the logo lines up
+ * with the h1 beneath it rather than floating off at the viewport edge.
+ */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+}
+
+.topnav-inner {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0.65rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.topnav-brand {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--text);
+  margin-right: auto;
+}
+
+.topnav-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/*
+ * A reserved box for a cross-origin asset of unknown intrinsic width. Without
+ * it the row is one width before the logo decodes and another after, which is
+ * layout shift in the first thing a user looks at. 72×20 is the widest the mark
+ * renders at this height; the image is contained inside it, so a different
+ * aspect ratio letterboxes rather than resizes the bar.
+ */
+.topnav-logo-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 72px;
+  height: 20px;
+  flex: none;
+}
+
+.topnav-logo {
+  height: 20px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  display: block;
+  filter: var(--logo-filter);
+  /* Slightly back from the wordmark: the partner mark should read as an
+     attribution, not compete with the product name it follows. */
+  opacity: 0.92;
+}
+
+/* What "by Nudge" degrades to when the asset does not load. Same size and
+   weight as the mark it replaces, so the bar does not reflow on failure. */
+.topnav-logo-fallback {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.topnav-wordmark {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* The joining word, deliberately the quietest thing in the lockup: it is
+   grammar, not branding. --muted is 5.7:1 on --ground. */
+.topnav-by {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.topnav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.topnav-link {
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 0.15rem 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.topnav-link:hover {
+  color: var(--text);
+}
+
+/* Bone, not amber: the accent is already spent on the primary action below. */
+.topnav-link[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+  font-weight: 500;
+}
+
+.topnav-link.quiet {
+  color: var(--muted);
+  border-bottom-color: transparent;
+}
+
+.topnav-link.quiet:hover {
+  color: var(--text-2);
+}
+
+.topnav-link:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────── */
+
 .shell {
   max-width: 60rem;
   margin: 0 auto;
-  padding: 2.5rem 1.5rem 6rem;
+  padding: 2rem 1.5rem 6rem;
 }
 
-header.masthead {
+/*
+ * A plain div, not a <header>. A <header> that is not nested inside an article
+ * or section carries an implicit role=banner, and this one sits under the top
+ * nav — which is the page's actual banner. Two banner landmarks in one document
+ * means a screen-reader user asking for "the banner" gets a disambiguation
+ * prompt instead of the nav.
+ */
+.masthead {
   border-bottom: 1px solid var(--line);
   padding-bottom: 1.25rem;
   margin-bottom: 2rem;
 }
 
 h1 {
-  font-size: 1.25rem;
+  font-family: var(--display);
+  font-size: 1.45rem;
   font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 0.25rem;
+  color: var(--text);
+}
+
+h2 {
+  font-family: var(--display);
 }
 
 .sub {
@@ -95,30 +310,34 @@ h1 {
 
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 1.1rem;
   margin-top: 1.25rem;
 }
 
 .tab {
-  border: 1px solid transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
   background: none;
   color: var(--muted);
-  padding: 0.4rem 0.75rem;
-  border-radius: var(--radius);
+  padding: 0.3rem 0;
+  border-radius: 0;
   cursor: pointer;
   font: inherit;
   font-size: 0.85rem;
 }
 
+.tab:hover {
+  color: var(--text-2);
+}
+
 .tab[aria-selected="true"] {
-  background: var(--card);
-  border-color: var(--line);
-  color: var(--fg);
+  color: var(--text);
+  border-bottom-color: var(--text);
   font-weight: 500;
 }
 
 .card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1.25rem;
@@ -144,22 +363,30 @@ label {
 input[type="text"],
 input[type="url"],
 input[type="number"],
+input[type="file"],
 select,
 textarea {
   width: 100%;
   padding: 0.55rem 0.7rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--raised);
+  color: var(--text);
   font: inherit;
   font-size: 0.9rem;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-button:focus-visible {
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -174,31 +401,50 @@ button:focus-visible {
   margin-bottom: 0.85rem;
 }
 
+/* The one place the accent is spent in a view. */
 button.primary {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--ground);
   border: none;
   border-radius: var(--radius);
   padding: 0.6rem 1.1rem;
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
 }
 
+/*
+ * Flat disabled colours rather than opacity: a translucent amber over a
+ * near-black ground lands at an unpredictable ratio, whereas these are
+ * measurable.
+ *
+ * --muted, not --dim, even though disabled controls are formally exempt from
+ * the contrast floor. This is the page's primary action sitting under an empty
+ * URL field — "Read product" is what tells a first-time user what the form is
+ * FOR, and at --dim it measured 3.15:1, which is a word you have to lean in to
+ * read. The state still reads as disabled from the ground alone: enabled is a
+ * solid amber plate, disabled is the same near-black as everything around it.
+ */
 button.primary:disabled {
-  opacity: 0.45;
+  background: var(--raised);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
 button.ghost {
   background: none;
-  border: 1px solid var(--line);
-  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
   border-radius: var(--radius);
   padding: 0.5rem 0.85rem;
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
+}
+
+button.ghost:hover {
+  color: var(--text);
+  border-color: var(--muted);
 }
 
 .actions {
@@ -249,6 +495,7 @@ button.ghost {
   padding: 0.6rem 0.75rem;
   margin: 0.9rem 0;
   font-size: 0.82rem;
+  color: var(--text);
 }
 
 .claimbar strong {
@@ -271,15 +518,15 @@ button.ghost {
   width: 72px;
   height: 90px;
   border-radius: var(--radius);
-  border: 2px solid var(--line);
+  border: 2px solid var(--line-strong);
   cursor: pointer;
-  background: var(--sand) center / cover no-repeat;
+  background: var(--raised) center / cover no-repeat;
   padding: 0;
   display: block;
 }
 
 .thumb[aria-pressed="true"] {
-  border-color: var(--fg);
+  border-color: var(--text);
 }
 
 /* Order badge: with two references, which one is primary matters. */
@@ -290,8 +537,8 @@ button.ghost {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--text);
+  color: var(--ground);
   font-size: 0.62rem;
   font-weight: 700;
   display: grid;
@@ -304,21 +551,20 @@ button.ghost {
   right: 4px;
   width: 20px;
   height: 20px;
-  border-radius: 3px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--fg);
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  background: var(--ground);
+  color: var(--text);
   font-size: 0.7rem;
   line-height: 1;
   cursor: pointer;
   padding: 0;
   display: grid;
   place-items: center;
-  opacity: 0.85;
 }
 
 .thumb-zoom:hover {
-  opacity: 1;
+  border-color: var(--muted);
 }
 
 /* ── custom select ─────────────────────────────────────────────────────── */
@@ -333,10 +579,10 @@ button.ghost {
   align-items: center;
   gap: 0.4rem;
   padding: 0.55rem 0.7rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--raised);
+  color: var(--text);
   font: inherit;
   font-size: 0.9rem;
   cursor: pointer;
@@ -344,17 +590,18 @@ button.ghost {
 }
 
 .select-trigger:disabled {
-  opacity: 0.5;
+  color: var(--dim);
   cursor: not-allowed;
 }
 
+/* Decoration, not information — the one place --dim is safe as a "colour". */
 .select-caret {
   margin-left: auto;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-top: 5px solid var(--muted);
+  border-top: 5px solid var(--dim);
   flex: none;
 }
 
@@ -372,10 +619,10 @@ button.ghost {
   margin: 0;
   padding: 0.25rem;
   list-style: none;
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.6);
   max-height: 15rem;
   overflow-y: auto;
 }
@@ -385,17 +632,20 @@ button.ghost {
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.55rem;
-  border-radius: 3px;
+  border-radius: 2px;
   cursor: pointer;
   font-size: 0.88rem;
+  color: var(--text-2);
 }
 
 .select-option.active {
-  background: var(--bg);
+  background: var(--raised);
+  color: var(--text);
 }
 
 .select-option[aria-selected="true"] {
   font-weight: 600;
+  color: var(--text);
 }
 
 .select-option[aria-selected="true"]::after {
@@ -410,7 +660,7 @@ button.ghost {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgb(0 0 0 / 0.82);
+  background: rgb(0 0 0 / 0.88);
   display: grid;
   place-items: center;
   padding: 2rem;
@@ -422,16 +672,16 @@ button.ghost {
   max-height: 86vh;
   object-fit: contain;
   border-radius: var(--radius);
-  background: var(--sand);
+  background: var(--raised);
 }
 
 .lightbox-close {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: 0.4rem 0.7rem;
   font: inherit;
@@ -439,14 +689,17 @@ button.ghost {
   cursor: pointer;
 }
 
+/* Opaque plate rather than a translucent one, so the caption's ratio against
+   its own background is the measured 17.6:1 whatever image sits behind it. */
 .lightbox-caption {
   position: fixed;
   bottom: 1.25rem;
   left: 50%;
   transform: translateX(-50%);
-  color: #ece7df;
+  color: var(--text);
   font-size: 0.8rem;
-  background: rgb(0 0 0 / 0.6);
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
   padding: 0.3rem 0.7rem;
   border-radius: var(--radius);
 }
@@ -464,10 +717,19 @@ button.ghost {
   grid-template-columns: repeat(auto-fill, minmax(19rem, 26rem));
   gap: var(--gap);
   justify-content: start;
+  /*
+   * start, not the grid default of stretch. Selecting a 4:5 feed unit and a
+   * 9:16 full-screen unit puts two cards of genuinely different heights in one
+   * row, and stretching pulled the shorter card's border down to match the
+   * taller one — leaving a tall panel of empty surface under the 4:5 preview
+   * that read as a rendering failure. Each card is now its own height, which is
+   * the honest depiction: these are different placements, not a ragged grid.
+   */
+  align-items: start;
 }
 
 .adcard {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -481,12 +743,14 @@ button.ghost {
   border-bottom: 1px solid var(--line);
 }
 
+/* Stays a circle while everything else squares off: this block is a facsimile
+   of the Meta feed chrome, not part of our own design language. */
 .avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--text);
+  color: var(--ground);
   display: grid;
   place-items: center;
   font-size: 0.7rem;
@@ -498,6 +762,7 @@ button.ghost {
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.2;
+  color: var(--text);
 }
 
 .sponsored {
@@ -509,6 +774,7 @@ button.ghost {
   padding: 0.7rem 0.85rem;
   font-size: 0.85rem;
   white-space: pre-wrap;
+  color: var(--text-2);
 }
 
 .ad-image {
@@ -516,7 +782,7 @@ button.ghost {
   display: block;
   aspect-ratio: 4 / 5;
   object-fit: cover;
-  background: var(--sand);
+  background: var(--raised);
 }
 
 .ad-foot {
@@ -525,14 +791,17 @@ button.ghost {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.7rem 0.85rem;
-  background: var(--bg);
+  background: var(--ground);
   border-top: 1px solid var(--line);
 }
 
 .ad-headline {
+  font-family: var(--display);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .ad-sub {
@@ -541,13 +810,14 @@ button.ghost {
 }
 
 .ad-cta {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: 0.4rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 500;
   white-space: nowrap;
   flex: none;
+  color: var(--text-2);
 }
 
 .adcard-foot {
@@ -577,15 +847,18 @@ button.ghost {
 .badge.unverified { color: var(--muted); }
 
 .finding {
-  border-left: 2px solid var(--line);
+  border-left: 2px solid var(--line-strong);
   padding: 0.4rem 0 0.4rem 0.7rem;
   margin: 0.5rem 0;
   font-size: 0.82rem;
+  color: var(--text-2);
 }
 
 .finding.blocking { border-left-color: var(--stop); }
 .finding.major { border-left-color: var(--warn); }
-.finding.minor { border-left-color: var(--muted); }
+/* Non-text rule at 3.6:1 against the card — over the 3:1 the WCAG
+   non-text-contrast rule asks for, and it must stay the quietest of the three. */
+.finding.minor { border-left-color: var(--dim); }
 
 .finding .action {
   color: var(--muted);
@@ -610,7 +883,7 @@ button.ghost {
 .meter {
   flex: 1;
   height: 4px;
-  background: var(--line);
+  background: var(--line-strong);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -618,27 +891,21 @@ button.ghost {
 .meter > i {
   display: block;
   height: 100%;
-  background: var(--fg);
+  background: var(--text);
 }
 
 .num {
   font-variant-numeric: tabular-nums;
   width: 2rem;
   text-align: right;
-}
-
-.big-score {
-  font-size: 2.5rem;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  color: var(--text);
 }
 
 ul.plain {
   margin: 0.4rem 0 0;
   padding-left: 1.1rem;
   font-size: 0.83rem;
+  color: var(--text-2);
 }
 
 ul.plain li { margin-bottom: 0.3rem; }
@@ -652,9 +919,10 @@ ul.plain li { margin-bottom: 0.3rem; }
   margin-bottom: var(--gap);
 }
 
+/* --text-2, not --muted: a notice is read, not skimmed past. */
 .notice {
-  border: 1px solid var(--line);
-  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
   border-radius: var(--radius);
   padding: 0.6rem 0.75rem;
   font-size: 0.8rem;
@@ -667,11 +935,16 @@ details > summary {
   color: var(--muted);
 }
 
+details > summary:hover {
+  color: var(--text-2);
+}
+
 pre.prompt {
   white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.72rem;
-  background: var(--bg);
+  color: var(--text-2);
+  background: var(--ground);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.7rem;
@@ -683,8 +956,8 @@ pre.prompt {
   display: inline-block;
   width: 11px;
   height: 11px;
-  border: 2px solid var(--line);
-  border-top-color: var(--fg);
+  border: 2px solid var(--dim);
+  border-top-color: var(--text);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   vertical-align: -1px;
@@ -744,17 +1017,17 @@ pre.prompt {
   border-radius: var(--radius);
   cursor: pointer;
   margin: 0;
-  background: var(--bg);
+  background: var(--ground);
 }
 
 .picker-item.on {
-  border-color: var(--fg);
-  background: var(--card);
+  border-color: var(--text-2);
+  background: var(--raised);
 }
 
 .picker-item input {
   margin: 0.15rem 0 0;
-  accent-color: var(--fg);
+  accent-color: var(--text);
   flex: none;
 }
 
@@ -772,6 +1045,7 @@ pre.prompt {
   gap: 0.45rem;
   align-items: baseline;
   flex-wrap: wrap;
+  color: var(--text);
 }
 
 .picker-dims {
@@ -783,16 +1057,28 @@ pre.prompt {
 
 .picker-note {
   font-size: 0.74rem;
+  color: var(--text-2);
+}
+
+/*
+ * The old .dim modifier faded this with opacity, which put real copy — the
+ * placement's note — below the contrast floor. It steps down one measured rung
+ * instead: --muted, still 4.8:1 on the selected card.
+ */
+.picker-note.dim {
   color: var(--muted);
 }
 
-.picker-note.dim {
-  opacity: 0.75;
-}
-
+/*
+ * Weight, not hue. This line renders once per placement, so colouring it amber
+ * would put the accent in a dozen places on a view that already spends it on
+ * the generate button — and a safe-zone spec is a fact about the placement,
+ * not a warning about this run.
+ */
 .picker-safe {
   font-size: 0.72rem;
-  color: var(--warn);
+  color: var(--text-2);
+  font-weight: 500;
 }
 
 /* ── preset chips ──────────────────────────────────────────────────────── */
@@ -805,10 +1091,10 @@ pre.prompt {
 }
 
 .chip {
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--muted);
-  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--raised);
+  color: var(--text-2);
+  border-radius: 2px;
   padding: 0.25rem 0.65rem;
   font: inherit;
   font-size: 0.75rem;
@@ -816,14 +1102,14 @@ pre.prompt {
 }
 
 .chip:hover {
-  color: var(--fg);
+  color: var(--text);
   border-color: var(--muted);
 }
 
 .chip.on {
-  background: var(--fg);
-  color: var(--bg);
-  border-color: var(--fg);
+  background: var(--text);
+  color: var(--ground);
+  border-color: var(--text);
 }
 
 /* ── editable confirm fields ───────────────────────────────────────────── */
@@ -859,12 +1145,12 @@ pre.prompt {
 /* ── run id ────────────────────────────────────────────────────────────── */
 
 .runid {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.72rem;
-  color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 3px;
+  color: var(--text-2);
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
   padding: 0.1rem 0.35rem;
 }
 
@@ -878,11 +1164,13 @@ pre.prompt {
 }
 
 .big-score {
+  font-family: var(--display);
   font-size: 5rem;
   font-weight: 600;
   letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
   line-height: 0.9;
+  color: var(--text);
 }
 
 .big-score-out-of {

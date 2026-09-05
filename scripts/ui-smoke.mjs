@@ -15,9 +15,14 @@
  * full container width and rendering a thousand-pixel-tall image, and blocked
  * concepts being returned by the API but silently dropped by the UI.
  *
- * Runs both colour schemes, because the palette is defined in three places
- * (bare :root, prefers-color-scheme, and [data-theme]) and it is easy to fix
- * one and forget the others.
+ * The app is behind a password now, so the run starts by signing in — which
+ * doubles as a test of the gate: if the login form does not work, nothing below
+ * this line can run at all.
+ *
+ * Still runs both colour schemes. The palette is deliberately dark-only, and
+ * this is what proves it: a design that quietly inherits the host scheme would
+ * come back light under colorScheme: "light" and the assertions would not
+ * notice — the screenshots and the contrast probe would.
  */
 
 import { chromium } from "playwright";
@@ -25,6 +30,9 @@ import { mkdirSync, existsSync } from "node:fs";
 
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const OUT = process.env.OUT ?? "out/ui";
+// Matches the default in src/lib/auth.ts appPassword(). Override when the
+// deployment under test sets APP_PASSWORD to something else.
+const PASSWORD = process.env.APP_PASSWORD ?? "NUDGE";
 const PRODUCT =
   process.env.PRODUCT_URL ??
   "https://beminimalist.co/products/hair-growth-anti-grey-actives-15-6-hair-serum";
@@ -43,6 +51,30 @@ const browser = await chromium.launch(
   CHROMIUM ? { executablePath: CHROMIUM } : {},
 );
 
+
+/**
+ * Sign in, tolerating the hydration race.
+ *
+ * The Enter button is disabled until React holds a non-empty password, and
+ * fill() before hydration sets the DOM value without firing the change handler
+ * React is listening for — so the field looks filled and the button stays
+ * dead forever. Refilling until the button enables is the only reliable signal
+ * that the form is live; there is no "hydrated" event to wait on.
+ */
+async function signIn(page) {
+  const submit = page.locator('button[type="submit"]');
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    // Clear first. fill() with the value the field already holds is a no-op
+    // that dispatches nothing, so a retry after a pre-hydration fill would
+    // never reach React and the loop would spin until it gave up.
+    await page.fill("#password", "");
+    await page.fill("#password", PASSWORD);
+    if (await submit.isEnabled()) break;
+    await page.waitForTimeout(250);
+  }
+  await submit.click();
+}
+
 async function run(theme) {
   const context = await browser.newContext({
     viewport: { width: 1200, height: 1000 },
@@ -52,12 +84,79 @@ async function run(theme) {
   const page = await context.newPage();
   const primary = theme === "light";
 
-  await page.goto(BASE, { waitUntil: "networkidle" });
+  // ── the gate ────────────────────────────────────────────────────────────
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+
+  if (primary) {
+    check(
+      "signed-out visitor is sent to the gate",
+      new URL(page.url()).pathname === "/login",
+      page.url(),
+    );
+    // The login page draws its own centred branding; the app bar linking to
+    // pages a signed-out visitor cannot open must not sit on top of it.
+    check("no app nav on the login page", (await page.locator(".topnav").count()) === 0);
+    // The mark is fetched from nudge.new, which is unreachable from some
+    // networks. Whatever happens, the lockup must read as words — never as a
+    // broken-image glyph. This is server-rendered HTML, so the failure can
+    // happen before React attaches onError; see brand-lockup.tsx.
+    const gateLockup = await page.locator("main >> text=Ad Studio").first().innerText();
+    check("gate lockup names the product", /Ad Studio/.test(gateLockup), gateLockup);
+    // Wait for the swap rather than sampling the instant the DOM appears:
+    // the fallback is applied by a callback ref, so it lands at hydration, not
+    // at first paint.
+    const gateLogoOk = await page
+      .waitForFunction(() => {
+        const img = document.querySelector('main img[alt="Nudge"]');
+        return img === null || (img.complete && img.naturalWidth > 0);
+      }, null, { timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+    check("no broken mark on the gate", gateLogoOk);
+    await page.screenshot({ path: `${OUT}/00-login.png`, fullPage: true });
+
+    // A wrong password must say so rather than failing silently or letting it through.
+    await page.fill("#password", "definitely-not-it");
+    await page.click('button[type="submit"]');
+    // #password-error, not [role="alert"]: Next injects its own route
+    // announcer with that role, so the bare selector is ambiguous.
+    await page.waitForSelector("#password-error", { timeout: 10000 });
+    check(
+      "wrong password refused",
+      new URL(page.url()).pathname === "/login",
+      (await page.locator("#password-error").innerText()).slice(0, 60),
+    );
+  }
+
+  await signIn(page);
+  await page.waitForSelector(".shell", { timeout: 20000 });
+  await page.waitForLoadState("networkidle");
   await page.screenshot({ path: `${OUT}/01-landing-${theme}.png`, fullPage: true });
 
   if (primary) {
-    check("landing renders", (await page.locator("h1").innerText()) === "Minimalist Ad Studio");
+    check("password opens the app", new URL(page.url()).pathname === "/");
+    check("landing renders", (await page.locator("h1").innerText()) === "Minimalist");
     check("both tabs present", (await page.locator('[role="tab"]').count()) === 2);
+
+    // ── top nav ───────────────────────────────────────────────────────────
+    check("one banner landmark", (await page.locator("header.topnav").count()) === 1);
+    check(
+      "nav carries the Ad Studio by Nudge lockup",
+      (await page.locator(".topnav-wordmark").innerText()) === "Ad Studio" &&
+        (await page.locator(".topnav-by").innerText()) === "by",
+    );
+    // Every nav link must go somewhere real. The bar used to carry
+    // href="#generate" / "#score" anchors pointing at ids that do not exist.
+    const navHrefs = await page
+      .locator(".topnav a")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    check(
+      "no dead nav anchors",
+      navHrefs.every((href) => href && !href.startsWith("#")),
+      navHrefs.join(" "),
+    );
+    check("sign out reachable from every page", (await page.locator(".topnav button").count()) === 1);
+    check("only one tab strip", (await page.locator('[role="tablist"]').count()) === 1);
 
     // A collection URL must be refused in the UI, with an actionable message.
     await page.fill("#url", "https://beminimalist.co/collections/skin");
@@ -85,16 +184,31 @@ async function run(theme) {
     // options only exist once the trigger is opened.
     // Placements are a grouped multi-select now: every one adds an image, so
     // the whole inventory and its cost implication must be visible at once.
+    // ONE ROW PER SIZE — three Meta sizes (4:5, 9:16, 1:1) and three Google
+    // (landscape, square, portrait). This was >= 8 while the catalogue listed a
+    // row per surface; the merge to per-size rows made the assertion vacuous.
     const placementCount = await page.locator(".picker-item").count();
-    check("placement picker lists Meta and Google", placementCount >= 8, `${placementCount} placements`);
+    check("placement picker lists every size once", placementCount === 6, `${placementCount} placements`);
+    check("grouped by platform", (await page.locator(".picker-group").count()) === 2);
+    // The label already names the surfaces for Meta, so repeating them below it
+    // is a stutter — the surface line is Google's, where it adds a fact.
     check(
-      "Meta 4:5 selected by default",
-      (await page.locator(".picker-item.on").count()) === 1,
+      "no label/surface stutter on Meta rows",
+      (await page
+        .locator(".picker-group")
+        .first()
+        .locator(".picker-note:not(.dim)")
+        .count()) === 0,
+    );
+    check(
+      "opens on the two placements a marketer actually buys",
+      (await page.locator(".picker-item.on").count()) === 2,
+      (await page.locator(".picker-item.on .picker-label").allInnerTexts()).join(" | "),
     );
     await page.locator(".picker-item", { hasText: "Display landscape" }).click();
     check(
-      "second placement selectable",
-      (await page.locator(".picker-item.on").count()) === 2,
+      "another placement selectable",
+      (await page.locator(".picker-item.on").count()) === 3,
     );
     check(
       "mixed-platform copy limits warned",
@@ -231,6 +345,48 @@ async function run(theme) {
     }
   } else if (primary) {
     check("scorer form reachable", await page.locator("#file").isVisible());
+  }
+
+  // ── /keys ───────────────────────────────────────────────────────────────
+  if (primary) {
+    await page.locator('.topnav a[href="/keys"]').click();
+    await page.waitForSelector("#gemini-key", { timeout: 10000 });
+    check("nav reaches the key page", new URL(page.url()).pathname === "/keys");
+    check(
+      "current key source is stated",
+      (await page.locator("[class*=statusRow]").innerText()).length > 0,
+      (await page.locator("[class*=statusRow]").innerText()).replace(/\s+/g, " "),
+    );
+    // Shape validation happens before anything is sealed into a cookie.
+    await page.fill("#gemini-key", "has a space in it");
+    await page.locator("button", { hasText: "Use this key" }).click();
+    const keyError = page.locator('p[role="alert"]');
+    await keyError.waitFor({ timeout: 10000 });
+    check(
+      "a malformed key is refused",
+      /space|line break/i.test(await keyError.innerText()),
+    );
+    // A key that passes the shape check is accepted and reported back masked —
+    // never echoed. This one is syntactically fine and functionally worthless,
+    // which is the point: /keys must not spend a request to find out.
+    await page.fill("#gemini-key", "AIzaSyUiSmokeNotARealKey0000000000000000");
+    await page.locator("button", { hasText: "Use this key" }).click();
+    await page.locator('p[role="status"]').waitFor({ timeout: 10000 });
+    const status = await page.locator("[class*=statusRow]").innerText();
+    check("override takes effect", /your key/i.test(status), status.replace(/\s+/g, " "));
+    check("only the last four characters are shown", /…\w{4}/.test(status));
+    check(
+      "the key itself never reaches the page",
+      !(await page.content()).includes("AIzaSyUiSmokeNotARealKey0000000000000000"),
+    );
+    await page.screenshot({ path: `${OUT}/07-keys.png`, fullPage: true });
+    // Put the deployment's key back, or every later run inherits a dud.
+    await page.locator("button", { hasText: "Clear override" }).click();
+    await page.waitForTimeout(500);
+    check(
+      "override clears back to the environment key",
+      /environment|no key/i.test(await page.locator("[class*=statusRow]").innerText()),
+    );
   }
 
   await context.close();

@@ -34,6 +34,7 @@ function brief(overrides: {
       cta: "Shop Now",
     },
     imagePrompt: {
+      layoutArchetype: "Single plinth",
       scene: "Studio",
       composition: "Centred",
       lighting: "Soft",

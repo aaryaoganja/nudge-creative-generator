@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tab icon. Two ad creatives, offset: the front one filled, the one behind it
+  drawn as an outline.
+
+  The subject is what the tool actually does — turn one product into a stack of
+  placements — rather than the generic "AI made this" sparkle, which at 16px is
+  indistinguishable from every other tool's icon. Detail is rationed to what
+  survives that size: one solid amber shape carries the whole mark, the outline
+  behind it only has to register as a second edge, and the single dark bar reads
+  as a headline rather than as a shape of its own. Amber on near-black, so the
+  icon is legible on both light and dark browser chrome without a second file.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="t">
+  <title id="t">Ad Studio by Nudge</title>
+  <rect width="32" height="32" rx="7" fill="#0a0a0a"/>
+  <rect x="11.75" y="5.75" width="14.5" height="16.5" rx="2.75"
+        fill="none" stroke="#d9a85c" stroke-opacity="0.55" stroke-width="1.6"/>
+  <rect x="5.5" y="9.5" width="15" height="17" rx="3" fill="#d9a85c"/>
+  <rect x="8.2" y="21.4" width="9.6" height="2.2" rx="1.1" fill="#0a0a0a"/>
+</svg>

@@ -21,7 +21,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify.ts",
-    "ui:smoke": "node scripts/ui-smoke.mjs"
+    "ui:smoke": "node scripts/ui-smoke.mjs",
+    "ui:contrast": "node scripts/contrast-audit.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

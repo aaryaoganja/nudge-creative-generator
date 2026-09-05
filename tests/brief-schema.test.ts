@@ -16,6 +16,7 @@ function brief(avoid: string[]) {
       cta: "Shop Now" as const,
     },
     imagePrompt: {
+      layoutArchetype: "Single plinth",
       scene: "Studio",
       composition: "Off-centre",
       lighting: "Soft",
@@ -30,11 +31,14 @@ function brief(avoid: string[]) {
 
 describe("avoid array — the cap that made every generation fail", () => {
   it("accepts more entries than there are brand-wide bans", () => {
-    // The old cap was 10 and BRAND_VISUAL.neverDepict has exactly 10 entries,
-    // while the prompt ordered the model to echo all of them. One additional
-    // concept-specific avoid therefore broke schema validation every time.
+    // The cap used to be set to the exact length of BRAND_VISUAL.neverDepict
+    // while the prompt ordered the model to echo all of them, so one additional
+    // concept-specific avoid broke schema validation every time. Asserted
+    // against the live list rather than the number it happened to hold, because
+    // the list has grown since and a hardcoded 10 would have stopped testing
+    // anything the day it did.
     const avoid = [...BRAND_VISUAL.neverDepict, "beach umbrellas", "sunglasses"];
-    assert.ok(avoid.length > 10);
+    assert.ok(avoid.length > BRAND_VISUAL.neverDepict.length);
     const parsed = ConceptBriefSchema.safeParse(brief(avoid));
     assert.equal(parsed.success, true, JSON.stringify(parsed.error?.issues));
   });
