@@ -58,11 +58,7 @@ export class GeminiImageProvider implements ImageProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
 
-  constructor(
-    apiKey: string,
-    model = "gemini-3-pro-image-preview",
-    baseUrl = API_BASE,
-  ) {
+  constructor(apiKey: string, model = "gemini-3-pro-image", baseUrl = API_BASE) {
     this.apiKey = apiKey;
     this.model = model;
     this.baseUrl = baseUrl;

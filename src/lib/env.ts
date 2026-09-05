@@ -43,14 +43,30 @@ const schema = z.object({
   /** Shopify's JSON endpoints do not report currency; the storefront implies it. */
   STORE_CURRENCY: z.string().length(3).default("INR"),
 
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /**
+   * The whole pipeline runs on the Gemini key: gemini-3.7-flash writes copy and
+   * scores creatives (it accepts image input), gemini-3-pro-image generates
+   * them. Anthropic and OpenAI stay wired but unused — no key, no cost, and the
+   * provider seam means adding one later is config, not code.
+   */
   GEMINI_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
 
-  /** Forces a provider. Unset means "whichever key is present". */
+  /** Forces a provider. Unset means "whichever key is present", Gemini first. */
   IMAGE_PROVIDER: z.enum(["gemini", "openai"]).optional(),
 
-  GEMINI_IMAGE_MODEL: z.string().default("gemini-3-pro-image-preview"),
+  /**
+   * Nano Banana Pro. Note it does NOT support the extreme banner ratios
+   * (1:4, 4:1, 1:8, 8:1) that gemini-3.1-flash-image does, so leaderboard and
+   * skyscraper placements must be derived by crop/extend rather than generated
+   * natively. See docs/ARCHITECTURE.md §24.1.
+   */
+  GEMINI_IMAGE_MODEL: z.string().default("gemini-3-pro-image"),
+
+  /** Copy generation, creative direction, and vision scoring. */
+  GEMINI_TEXT_MODEL: z.string().default("gemini-3.7-flash"),
+
   OPENAI_IMAGE_MODEL: z.string().default("gpt-image-1"),
 
   /**
