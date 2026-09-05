@@ -219,6 +219,7 @@ export function buildScorerSystemPrompt(): string {
 export function buildScorerUserPrompt(
   placement: PlacementSpec,
   snapshot: ProductSnapshot | null,
+  pageMarkdown?: string | null,
 ): string {
   const lines = [
     `## Creative under review`,
@@ -245,7 +246,12 @@ export function buildScorerUserPrompt(
         : "",
       snapshot.discountPct !== null ? `Discount: ${snapshot.discountPct}%` : "",
       snapshot.descriptionText
-        ? `\nPage copy:\n${snapshot.descriptionText.slice(0, 1200)}`
+        ? `\nProduct description:\n${snapshot.descriptionText.slice(0, 1200)}`
+        : "",
+      // The full page widens what can be checked: a benefit stated in the
+      // creative might be supported by an ingredient section the JSON omits.
+      pageMarkdown
+        ? `\nFull product page as rendered:\n${pageMarkdown}`
         : "",
     );
   } else {
@@ -303,6 +309,7 @@ export interface ScoreInput {
   image: { bytes: Uint8Array; mimeType: string };
   placement: PlacementSpec;
   snapshot: ProductSnapshot | null;
+  pageMarkdown?: string | null;
 }
 
 export async function scoreCreative(
@@ -314,7 +321,11 @@ export async function scoreCreative(
   const vision = await client.generateJson<VisionScore>(
     {
       system: buildScorerSystemPrompt(),
-      prompt: buildScorerUserPrompt(input.placement, input.snapshot),
+      prompt: buildScorerUserPrompt(
+        input.placement,
+        input.snapshot,
+        input.pageMarkdown,
+      ),
       responseSchema: RESPONSE_SCHEMA,
       temperature: 0,
       images: [input.image],

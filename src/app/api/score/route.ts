@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ShopifyClient } from "@/lib/scrape/shopify";
+import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient } from "@/lib/providers/gemini-text";
 import { scoreCreative } from "@/lib/pipeline/score";
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
   }
 
   let snapshot: ProductSnapshot | null = null;
+  let pageMarkdown: string | null = null;
   let productUrlWarning: string | null = null;
 
   if (parsed.productUrl) {
@@ -143,6 +145,14 @@ export async function POST(request: Request) {
         currency: config.STORE_CURRENCY,
       });
       snapshot = await shopify.fetchProduct(parsed.productUrl);
+
+      // Widens what can actually be checked: a benefit claimed in the creative
+      // may be supported by an ingredient section the product JSON omits.
+      const enriched = await tryScrapePage(
+        snapshot.sourceUrl,
+        config.FIRECRAWL_API_KEY,
+      );
+      pageMarkdown = enriched.page?.markdown ?? null;
     } catch (error) {
       // A failed scrape must degrade to unverified, not fail the whole score.
       productUrlWarning =
@@ -161,6 +171,7 @@ export async function POST(request: Request) {
       image: { bytes: parsed.bytes, mimeType: parsed.mimeType },
       placement,
       snapshot,
+      pageMarkdown,
     });
 
     return NextResponse.json({

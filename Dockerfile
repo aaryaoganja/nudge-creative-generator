@@ -11,6 +11,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
+# Playwright is a devDependency used only by the UI smoke test, and its
+# postinstall would otherwise pull ~150MB of Chromium into a build that never
+# opens a browser.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 
 # ---- build ------------------------------------------------------------------

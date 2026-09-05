@@ -90,12 +90,41 @@ allowlist from `STORE_ALLOWED_HOSTS`.
 ## Tests
 
 ```bash
-npm test
+npm test          # unit + integration, fixture-backed, no network, no key
+npm run smoke     # whole pipeline offline against a stubbed transport
+npm run ui:smoke  # drives the real UI in a real browser
 ```
 
-Node's built-in test runner against TypeScript directly — no test framework, no
-transpiler, no dev dependency. Fixture-backed, so the suite never touches the
-network and needs no API key.
+`npm test` uses Node's built-in runner against TypeScript directly — no test
+framework and no transpiler. It never touches the network, so CI is
+deterministic and needs no API key.
+
+`npm run ui:smoke` needs a server running against the offline stub:
+
+```bash
+GEMINI_API_KEY=offline-smoke \
+NODE_OPTIONS="--import ./scripts/dev-stub-transport.ts" \
+npx next dev -p 3000 &
+
+BASE=http://localhost:3000 npm run ui:smoke
+```
+
+It caught two real defects on its first run — a single result stretching to full
+container width and rendering a thousand-pixel-tall image, and blocked concepts
+being returned by the API but dropped by the UI.
+
+## Verifying the live providers
+
+Everything above runs offline. To confirm the request shapes are actually
+accepted by Google and Firecrawl:
+
+```bash
+railway run npm run models            # what the key can see
+railway run npm run verify            # free: key, text round-trip, vision, Firecrawl
+railway run npm run verify -- --image # adds one real generation (~$0.134)
+```
+
+A failing check names the single file to correct.
 
 ## Endpoints
 

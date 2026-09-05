@@ -34,6 +34,12 @@ export interface BriefInput {
   offer?: string;
   angleHint?: string;
   audience?: string;
+  /**
+   * Full rendered page content from Firecrawl. Optional — its absence costs
+   * copy depth, not correctness, since every hard fact still comes from the
+   * structured snapshot.
+   */
+  pageMarkdown?: string | null;
 }
 
 /** OpenAPI-subset schema for structured output. */
@@ -209,6 +215,19 @@ export function buildUserPrompt(input: BriefInput): string {
       : "",
     snapshot.tags.length > 0 ? `Tags: ${snapshot.tags.join(", ")}` : "",
     "",
+    input.pageMarkdown
+      ? [
+          "## Full product page",
+          "",
+          "This is the page as a customer sees it. Use it for substance —",
+          "ingredients, mechanism, how it is used, what concern it addresses.",
+          "It does NOT widen the claim lock: numbers still come only from the",
+          "permitted list below, whatever this page appears to say.",
+          "",
+          input.pageMarkdown,
+          "",
+        ].join("\n")
+      : "",
     "## Permitted numeric claims — the complete list",
     `Percentages you may use: ${permittedPercents.join(", ") || "NONE — use no percentage at all"}`,
     `Money you may use: ${permittedMoney.join(", ") || "NONE — do not mention price"}`,

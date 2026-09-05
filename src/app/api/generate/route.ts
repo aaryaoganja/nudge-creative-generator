@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ShopifyClient, ShopifyFetchError } from "@/lib/scrape/shopify";
+import { tryScrapePage } from "@/lib/scrape/firecrawl";
 import { safeFetchBinary, FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient } from "@/lib/providers/gemini-text";
 import { GeminiImageProvider } from "@/lib/providers/gemini-image";
@@ -76,6 +77,15 @@ export async function POST(request: Request) {
     const snapshot = await shopify.fetchProduct(input.url);
     const claims = claimsFrom(snapshot);
 
+    // ── enrich (optional) ─────────────────────────────────────────────────
+    // Shopify's JSON gives the description field only; the rendered page also
+    // carries ingredients, mechanism and usage. Best-effort — a failure here
+    // costs copy depth, never correctness.
+    const { page, warning: enrichmentWarning } = await tryScrapePage(
+      snapshot.sourceUrl,
+      config.FIRECRAWL_API_KEY,
+    );
+
     // ── brief ─────────────────────────────────────────────────────────────
     const text = new GeminiTextClient(
       config.GEMINI_API_KEY,
@@ -90,6 +100,7 @@ export async function POST(request: Request) {
       offer: input.offer,
       angleHint: input.angleHint,
       audience: input.audience,
+      pageMarkdown: page?.markdown ?? null,
     });
 
     // ── policy gate, before any image spend ───────────────────────────────
@@ -209,6 +220,11 @@ export async function POST(request: Request) {
         outputTokens: brief.usage.outputTokens,
       },
       models: { text: brief.model, image: config.GEMINI_IMAGE_MODEL },
+      enrichment: {
+        used: page !== null,
+        chars: page?.markdown.length ?? 0,
+        warning: enrichmentWarning,
+      },
     });
   } catch (error) {
     if (error instanceof FetchRejectedError) {

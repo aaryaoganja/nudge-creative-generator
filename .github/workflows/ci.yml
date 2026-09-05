@@ -17,6 +17,9 @@ jobs:
       # Never contacted — `prisma generate` and `next build` only need the URL
       # to parse, and no route touches the database at build time.
       DATABASE_URL: postgresql://user:pass@localhost:5432/db
+      # CI runs the unit tests, not the browser smoke test, so skip the ~150MB
+      # Chromium download that Playwright's postinstall would otherwise do.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
 
