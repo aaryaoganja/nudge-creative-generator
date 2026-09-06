@@ -747,6 +747,102 @@ button.ghost:hover {
   border-color: var(--muted);
 }
 
+
+/* ── file dropzone ─────────────────────────────────────────────────────── */
+
+/*
+ * A label wrapping a real file input, so a click anywhere in it opens the
+ * operating system's own picker with no JavaScript. Dashed rather than solid,
+ * because a dashed border is the one border convention that reads as "put
+ * something here" rather than as a container edge.
+ */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 8.5rem;
+  padding: 1.5rem 1rem;
+  margin-bottom: 0.85rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--ground);
+  cursor: pointer;
+  text-align: center;
+  /* The border and ground both change on drag; transitioning them stops the
+     highlight snapping on and off as the pointer crosses child elements. */
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.dropzone:hover {
+  border-color: var(--muted);
+}
+
+/* Held over the box. Same treatment as every other selected control. */
+.dropzone.on {
+  border-color: var(--selected-line);
+  border-style: solid;
+  background: var(--selected-fill);
+}
+
+.dropzone.bad {
+  border-color: var(--stop);
+}
+
+/*
+ * The real input, present and focusable but not drawn.
+ *
+ * Clipped rather than display:none: a display:none input cannot receive focus,
+ * so the keyboard path to the picker would disappear and the focus ring below
+ * would have nothing to fire on.
+ */
+.dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The input is invisible, so the ring has to be drawn by its container. */
+.dropzone:has(.dropzone-input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dropzone-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  /* A long filename must wrap rather than widen the card. */
+  overflow-wrap: anywhere;
+}
+
+.dropzone-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* The uploaded creative, at a size that reads without dominating the form. */
+.score-preview {
+  display: block;
+  max-width: 220px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  margin-bottom: 0.85rem;
+}
+
+.dropzone-error {
+  color: var(--stop);
+  font-size: 0.82rem;
+  margin: -0.4rem 0 0.85rem;
+}
+
 /* ── custom select ─────────────────────────────────────────────────────── */
 
 .select {

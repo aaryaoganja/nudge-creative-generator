@@ -377,7 +377,110 @@ async function run(theme) {
   }
 
   await page.locator(".switcher-tab", { hasText: "Score" }).click();
-  await page.waitForSelector("#file", { timeout: 10000 });
+  await page.waitForSelector(".dropzone", { timeout: 10000 });
+
+  const fixtureAvailable = Boolean(
+    process.env.SCORE_FIXTURE && existsSync(process.env.SCORE_FIXTURE),
+  );
+
+  // ── the dropzone ────────────────────────────────────────────────────────
+  if (primary) {
+    check("the file field is a dropzone", (await page.locator(".dropzone").count()) === 1);
+    // A <label for> wrapping the real input is what makes a click open the
+    // operating system's picker with no JavaScript. Assert the wiring, since a
+    // div with an onClick would look identical until someone tabbed to it.
+    check(
+      "clicking it opens the native picker",
+      (await page.locator(".dropzone").getAttribute("for")) === "file" &&
+        (await page.locator(".dropzone #file").count()) === 1,
+    );
+    check(
+      "the real input is still focusable for keyboard users",
+      await page.locator("#file").evaluate((el) => {
+        const style = getComputedStyle(el);
+        return style.display !== "none" && style.visibility !== "hidden";
+      }),
+    );
+
+    /*
+     * Drive a real drag and drop. Playwright cannot drag from the desktop, so
+     * the DataTransfer is built in the page from bytes the test supplies, which
+     * is as close to a genuine drop as a browser will allow.
+     */
+    // The transfer is stashed on window so the drag can be held across separate
+    // evaluate calls: the highlight is React state, so it is not on the element
+    // until a render has happened, and reading it in the same tick as the
+    // dragenter would test the scheduler rather than the component.
+    await page.evaluate(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(
+        new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "dropped-creative.png", {
+          type: "image/png",
+        }),
+      );
+      window.__drag = transfer;
+      document
+        .querySelector(".dropzone")
+        .dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: transfer }));
+    });
+    const highlighted = await page
+      .waitForSelector(".dropzone.on", { timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    check("dragging a file over it highlights the target", highlighted);
+
+    await page.evaluate(() => {
+      const zone = document.querySelector(".dropzone");
+      zone.dispatchEvent(
+        new DragEvent("dragover", { bubbles: true, dataTransfer: window.__drag }),
+      );
+      zone.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, dataTransfer: window.__drag }),
+      );
+    });
+    await page.waitForTimeout(200);
+    check(
+      "dropping a file selects it",
+      (await page.locator(".dropzone-title").innerText()).includes("dropped-creative.png"),
+      await page.locator(".dropzone-title").innerText(),
+    );
+    check("the highlight clears after the drop", (await page.locator(".dropzone.on").count()) === 0);
+    check(
+      "and the score button becomes usable",
+      await page.locator("button.primary", { hasText: "Score creative" }).isEnabled(),
+    );
+
+    // Dropping something that is not an image has to say so, not fail silently.
+    await page.evaluate(() => {
+      const zone = document.querySelector(".dropzone");
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["notes"], "brief.txt", { type: "text/plain" }));
+      zone.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: transfer }));
+      zone.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: transfer }));
+    });
+    await page.waitForTimeout(200);
+    // Scoped by role, not by class: a refused drop is an alert, while the
+    // undecodable-preview note beside it is a status. They look alike and a
+    // screen reader treats them differently, so the test should too.
+    const refusal = page.locator('.dropzone-error[role="alert"]');
+    check(
+      "dropping the wrong kind of file is refused out loud",
+      (await refusal.count()) === 1,
+      await refusal.innerText().catch(() => ""),
+    );
+    check(
+      "an undecodable file does not leave a broken image glyph",
+      (await page.locator("img.score-preview").count()) === 0 &&
+        (await page
+          .locator('.dropzone-error[role="status"]')
+          .filter({ hasText: "could not be displayed" })
+          .count()) === 1,
+    );
+    await page.screenshot({ path: `${OUT}/10-dropzone.png`, fullPage: true });
+
+    // Back to a real file, so the score run below has something valid.
+    if (fixtureAvailable) await page.setInputFiles("#file", process.env.SCORE_FIXTURE);
+  }
 
   const fixture = process.env.SCORE_FIXTURE;
   if (fixture && existsSync(fixture)) {
@@ -404,7 +507,7 @@ async function run(theme) {
       );
     }
   } else if (primary) {
-    check("scorer form reachable", await page.locator("#file").isVisible());
+    check("scorer form reachable", (await page.locator(".dropzone").count()) === 1);
   }
 
   // ── the link actually opens ─────────────────────────────────────────────

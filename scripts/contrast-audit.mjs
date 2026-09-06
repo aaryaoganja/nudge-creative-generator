@@ -158,7 +158,7 @@ await page.locator("details summary").first().click();
 await audit("results");
 
 await page.locator(".switcher-tab", { hasText: "Score" }).click();
-await page.waitForSelector("#file", { timeout: 10000 });
+await page.waitForSelector(".dropzone", { timeout: 10000 });
 await audit("score");
 
 await page.goto(`${BASE}/?view=history`, { waitUntil: "networkidle" });
