@@ -189,6 +189,47 @@ been cleared.
 If Postgres is unreachable the app still runs, history falls back to memory,
 and the interface says the link will not open for anyone else.
 
+### Surviving a deploy
+
+History lives in Postgres, which on Railway is a separate service with its own
+volume, so replacing the web container does not touch it. There is exactly one
+way that promise used to break, and it broke silently.
+
+Creating the tables is a migration, and the migration is wired into
+`.railway/railway.ts` as a pre-deploy step. That file is infrastructure as code,
+which Railway reads when somebody runs `railway config apply`, not on every
+deploy. On a service where that command has never been run, the tables are never
+created. Nothing looks wrong: the deploy succeeds, the health check passes,
+creatives generate, scores come back, links get minted. Every write to history
+throws, gets caught, and lands in an array in memory that is thrown away with
+the container.
+
+Three things now stand between that and a lost history.
+
+The server applies pending migrations itself at startup if it finds the tables
+missing. It is a backstop, not the mechanism, and it runs the same command the
+pre-deploy step runs. Two replicas starting together is safe, because Prisma
+takes a Postgres advisory lock: run three at once against an empty database and
+one applies the migrations while the others wait and then find nothing pending.
+Set `AUTO_MIGRATE=off` to turn this off and rely on the pre-deploy step alone.
+
+The interface stops guessing. "No database" and "the tables are missing" are
+different problems with different fixes, and History now names which one it is
+looking at instead of showing one badge for both. Somebody told the tables are
+missing goes and applies a migration; somebody told there is no database goes
+and checks a connection string, which on a deployment that has a perfectly good
+Postgres attached is a wasted afternoon.
+
+And you can ask directly, from inside the deployment, which is the only place
+the answer counts:
+
+    railway run npm run db:check
+
+It reports whether Postgres answers, whether both tables exist, whether every
+migration on disk has been applied, and how much is stored. It exits non-zero
+when history would not survive, so it works in a script. `GET /api/health`
+answers the same question for anyone signed in, under `history.survivesRedeploy`.
+
 ---
 
 ## The password
@@ -253,9 +294,11 @@ deployment:
 Platform configuration lives in `.railway/railway.ts`, not `railway.json`.
 Preview it with `railway config plan` and commit it with `railway config apply`.
 
-That file also carries the pre-deploy migration. It has to be applied at least
-once, or the run tables will not exist and history will quietly fall back to
-memory.
+That file also carries the pre-deploy migration, and it has to be applied at
+least once for that step to exist at all. The server now creates the tables
+itself at boot if it finds them missing, so forgetting no longer costs you your
+history, but the backstop is not the mechanism and `railway config apply` is
+still the thing to do. Confirm either way with `railway run npm run db:check`.
 
 Secrets are declared as `preserve()`, which means you set them once in the
 Railway dashboard and infrastructure-as-code never overwrites them or pulls

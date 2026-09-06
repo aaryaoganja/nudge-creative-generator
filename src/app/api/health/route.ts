@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { env, hasDatabase } from "@/lib/env";
+import { lastMigrationOutcome } from "@/lib/migrate";
+import { schemaState } from "@/lib/schema";
 
 // Railway probes this path (see .railway/railway.ts `healthcheck`). It must never
 // be prerendered or cached, or the probe would pass against a stale snapshot.
@@ -83,6 +85,21 @@ export async function GET() {
     }
   }
 
+  /*
+   * "Reachable" was never the question people actually had.
+   *
+   * A database can answer SELECT 1 perfectly while the history tables do not
+   * exist, which is exactly what a deploy looks like when the migration step
+   * never ran, and it is indistinguishable from a healthy one from the outside:
+   * generation works, scoring works, links get minted, and history is quietly
+   * an array in memory that dies with the container. `history` below is the
+   * answer to "will what I do here still be here after the next deploy", and
+   * `migration` says what the boot-time backstop in src/lib/migrate.ts did
+   * about it.
+   */
+  const schema = await schemaState();
+  const migration = lastMigrationOutcome();
+
   // Surfaced so a misconfigured deployment is diagnosable from the probe alone,
   // rather than requiring a log dive. Booleans only — never the values.
   let providers = { gemini: false };
@@ -107,6 +124,26 @@ export async function GET() {
     database,
     databaseError,
     databaseRequired: false,
+    history: {
+      /** ready, missing, unreachable or not_configured. */
+      schema: schema.state,
+      /** The one field to read: does history survive the next deploy? */
+      survivesRedeploy: schema.state === "ready",
+      note: schema.note,
+      error: schema.error,
+    },
+    migration: migration
+      ? {
+          attempted: migration.attempted,
+          ready: migration.ready,
+          skipped: migration.skipped,
+          error: migration.error,
+          durationMs: migration.durationMs,
+        }
+      : // Either still running past the boot budget, or this process never
+        // reached instrumentation.ts, which on a standalone server means it is
+        // not the server at all.
+        null,
     providers,
     configError,
     latencyMs: Date.now() - startedAt,

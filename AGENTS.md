@@ -44,6 +44,18 @@ override page that said it was in effect while both spending routes read the
 deployment's key. All three looked fine and were not. If you catch something,
 either it reaches the user or you can explain why it does not.
 
+**The server runs migrations at boot.** `src/instrumentation.ts` calls into
+`src/lib/migrate.ts`, which applies pending migrations when it finds the history
+tables absent. This is normally bad practice and it is deliberate here. The
+pre-deploy step in `.railway/railway.ts` is the real mechanism, but that file is
+infrastructure as code and only takes effect when somebody runs `railway config
+apply`, so on a service where nobody has, the tables are never created and the
+failure is completely silent: the deploy succeeds, the health check passes, and
+history becomes an array in memory that dies with the container. Two replicas
+racing is safe because Prisma takes a Postgres advisory lock, which was verified
+rather than assumed. `AUTO_MIGRATE=off` disables it. If you remove this, the
+thing to replace it with is not nothing.
+
 **Comments here argue rather than describe.** They exist to stop someone
 undoing a decision without knowing it was a decision. If you change the
 behaviour, change the argument too; if you disagree with one, say so in the
@@ -75,6 +87,14 @@ person can use the thing. It needs a dev server against the offline stub:
 
     BASE=http://localhost:3000 npm run ui:smoke
     BASE=http://localhost:3000 npm run ui:contrast
+
+Add `DATABASE_URL=...` to that dev command if you have a Postgres to hand, and
+prefer it. Without one the suite still passes, but three things go untested
+because they cannot happen: images are inlined as base64 rather than served
+from the asset store, history is an array in memory, and the run store's
+Postgres paths are never entered. The checks adapt and say which configuration
+they ran in, so a green run with no database is not the same evidence as a
+green run with one.
 
 If you change a class name that either script selects, change the script in the
 same commit. They fail with a timeout rather than a clear message, which is the

@@ -525,9 +525,28 @@ async function run(theme) {
       (await fresh.locator(".adcard").count()) > 0,
       `${await fresh.locator(".adcard").count()} cards`,
     );
-    // Served from storage, not re-inlined as base64 into the page.
-    const src = await fresh.locator("img.ad-image").first().getAttribute("src");
-    check("images come from the asset store", (src ?? "").startsWith("/api/assets/"), src ?? "");
+    /*
+     * Where the picture comes from depends on whether there is a database, and
+     * this check used to assume there was one. Run against the dev command in
+     * AGENTS.md, which sets no DATABASE_URL, it failed every time and said
+     * nothing useful: images legitimately fall back to inline base64 when there
+     * is nowhere to store them. Asserting the correspondence instead means the
+     * suite is meaningful in both configurations, and it is now a real test of
+     * the asset store when you point it at Postgres.
+     */
+    const storageState = await fresh.evaluate(async () =>
+      (await (await fetch("/api/runs")).json()).storage,
+    );
+    const src = (await fresh.locator("img.ad-image").first().getAttribute("src")) ?? "";
+    check(
+      storageState === "ready"
+        ? "images come from the asset store"
+        : `images fall back to inline data with no store (${storageState})`,
+      storageState === "ready"
+        ? src.startsWith("/api/assets/")
+        : src.startsWith("data:image/"),
+      src.slice(0, 60),
+    );
     await fresh.screenshot({ path: `${OUT}/08-shared-run.png`, fullPage: true });
     await fresh.close();
   }
@@ -541,6 +560,58 @@ async function run(theme) {
       "each row links to its own run",
       (await page.locator(".runrow-open").first().getAttribute("href"))?.startsWith("/?run=") ?? false,
     );
+    /*
+     * The whole point of storing runs is that they are still there after the
+     * next deploy, and the interface is where that claim gets made. When the
+     * database is healthy there must be no "not stored" notice at all; the
+     * previous version of this page showed one generic badge whether the
+     * database was absent, unreachable or simply missing its tables, which are
+     * three different jobs to go and do.
+     */
+    const stored = await page.evaluate(async () => {
+      const body = await (await fetch("/api/runs")).json();
+      return { durable: body.durable, storage: body.storage };
+    });
+    check(
+      "history says which of the four storage states it is in",
+      ["ready", "missing", "unreachable", "not_configured"].includes(stored.storage),
+      JSON.stringify(stored),
+    );
+    check(
+      "durable and the storage state agree",
+      stored.durable === (stored.storage === "ready"),
+      JSON.stringify(stored),
+    );
+
+    /*
+     * The badge has to name the state, not merely flag it. This assertion runs
+     * against whichever state the suite happens to be in, which is the point:
+     * "no database" and "the tables are missing" send a person to two different
+     * places, and until this change both produced the words "not stored".
+     */
+    const badge = (await page.locator(".notice .badge.unverified").count())
+      ? (await page.locator(".notice .badge.unverified").first().innerText()).trim().toLowerCase()
+      : null;
+    const EXPECTED_BADGE = {
+      ready: null,
+      missing: "migrations not applied",
+      unreachable: "database unreachable",
+      not_configured: "no database",
+    };
+    check(
+      `the durability badge matches the state (${stored.storage})`,
+      badge === EXPECTED_BADGE[stored.storage],
+      `badge ${JSON.stringify(badge)}, expected ${JSON.stringify(EXPECTED_BADGE[stored.storage])}`,
+    );
+
+    const health = await page.evaluate(async () => (await fetch("/api/health")).json());
+    check(
+      "the health check answers whether history survives a redeploy",
+      health.history?.survivesRedeploy === (stored.storage === "ready") &&
+        health.history?.schema === stored.storage,
+      JSON.stringify(health.history ?? null),
+    );
+
     await page.screenshot({ path: `${OUT}/09-history.png`, fullPage: true });
   }
 

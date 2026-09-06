@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { getPrisma } from "./db.ts";
 import { hasDatabase } from "./env.ts";
+import {
+  noteForSchemaState,
+  noteQueryFailure,
+  schemaState,
+  type SchemaState,
+} from "./schema.ts";
 import { storage } from "./storage.ts";
 
 /**
@@ -185,6 +191,10 @@ export async function startRun(input: StartRunInput): Promise<void> {
     });
   } catch (error) {
     warnOnce("startRun", error);
+    // A write that failed because the table is not there has just disproved a
+    // cached "ready". Say so now rather than letting the History view keep
+    // promising durability until the cache expires.
+    noteQueryFailure(error);
     remember(record);
   }
 }
@@ -254,6 +264,28 @@ export async function finishRun(input: FinishRunInput): Promise<void> {
     await pruneAssets();
   } catch (error) {
     warnOnce("finishRun", error);
+    noteQueryFailure(error);
+    /*
+     * The memory copy is the point of this branch. Without it a run whose
+     * startRun succeeded against Postgres and whose finishRun did not was lost
+     * from both stores: the row stayed RUNNING with no payload, and nothing
+     * held the result the user was looking at. Now the link still opens, from
+     * this container, for as long as it lives.
+     */
+    remember({
+      id: input.id,
+      kind: kindOfRunId(input.id) ?? "generation",
+      status: input.status,
+      startedAt: memory().find((run) => run.id === input.id)?.startedAt ?? new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      summary: input.summary,
+      subject: input.subject ?? null,
+      productUrl: input.productUrl ?? null,
+      costUsd: input.costUsd ?? 0,
+      inputs: input.inputs ?? {},
+      payload: input.payload ?? null,
+      error: input.error ?? null,
+    });
   }
 }
 
@@ -289,6 +321,13 @@ export interface RunHistory {
   runs: RunRecord[];
   /** True only when the rows came from Postgres. */
   durable: boolean;
+  /**
+   * Why history is not durable, when it is not. The three answers need three
+   * different fixes and used to share one sentence: no database configured,
+   * a database that is not answering, and a database whose tables were never
+   * created because the migration step did not run.
+   */
+  storage: SchemaState;
   note: string;
 }
 
@@ -318,12 +357,20 @@ export async function listRuns(kind?: RunKind, limit = 50): Promise<RunHistory> 
       return {
         runs: rows.map(fromRow),
         durable: true,
-        note: "History is stored in Postgres. Links work from any replica and survive a redeploy.",
+        storage: "ready",
+        note: noteForSchemaState("ready"),
       };
     } catch (error) {
       warnOnce("listRuns", error);
+      noteQueryFailure(error);
     }
   }
+
+  // One query, and only on the path that has already failed, to say which of
+  // the three reasons applies. Reporting "no database is reachable" for a
+  // reachable database with no tables sent at least one person looking at the
+  // wrong variable.
+  const { state, note } = await schemaState();
 
   return {
     runs: memory()
@@ -337,7 +384,8 @@ export async function listRuns(kind?: RunKind, limit = 50): Promise<RunHistory> 
         return listed;
       }),
     durable: false,
-    note: "No database is reachable, so history is being kept in this container's memory. It is lost on redeploy, each replica keeps its own, and links will not open for anyone else.",
+    storage: state,
+    note,
   };
 }
 
@@ -353,9 +401,15 @@ export async function getRun(id: string): Promise<RunLookup> {
     try {
       const row = await (await getPrisma()).run.findUnique({ where: { id } });
       if (row) return { run: fromRow(row), durable: true };
+      // Not found in Postgres, but this container may still hold it from a
+      // window when the database was unavailable. Falling through rather than
+      // returning null is what makes a link minted during an outage still open.
+      const remembered = memory().find((run) => run.id === id);
+      if (remembered) return { run: remembered, durable: false };
       return { run: null, durable: true };
     } catch (error) {
       warnOnce("getRun", error);
+      noteQueryFailure(error);
     }
   }
 

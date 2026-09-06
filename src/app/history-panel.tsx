@@ -34,8 +34,25 @@ interface HistoryRow {
 interface HistoryResponse {
   runs: HistoryRow[];
   durable: boolean;
+  /** Why history is not durable. Three states, three different fixes. */
+  storage?: "ready" | "missing" | "unreachable" | "not_configured";
   note: string;
 }
+
+/**
+ * The badge has to name the situation, not just flag it.
+ *
+ * "not stored" was one label for three problems. Somebody reading it on a
+ * deployment that has a perfectly good Postgres attached will go and check the
+ * database, find it up, and conclude the badge is wrong. It is not wrong: the
+ * tables are missing because the migration step never ran, which is a
+ * different job from provisioning a database, and the label now says which.
+ */
+const STORAGE_BADGE: Record<string, string> = {
+  missing: "migrations not applied",
+  unreachable: "database unreachable",
+  not_configured: "no database",
+};
 
 type Filter = "all" | "generation" | "scoring";
 
@@ -158,7 +175,10 @@ export function HistoryPanel() {
 
       {data && !data.durable && (
         <div className="notice">
-          <span className="badge unverified">not stored</span> {data.note}
+          <span className="badge unverified">
+            {STORAGE_BADGE[data.storage ?? ""] ?? "not stored"}
+          </span>{" "}
+          {data.note}
         </div>
       )}
 

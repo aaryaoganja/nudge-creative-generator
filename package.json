@@ -19,6 +19,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/db-check.ts",
     "db:studio": "prisma studio",
     "verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify.ts",
     "ui:smoke": "node scripts/ui-smoke.mjs",
