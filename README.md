@@ -90,6 +90,29 @@ before connecting (169.254.169.254 is the cloud metadata endpoint), every
 redirect hop re-validated, responses size-capped while streaming, and a host
 allowlist from `STORE_ALLOWED_HOSTS`.
 
+## Reading the product page
+
+Two readers, tried in order:
+
+1. **`src/lib/scrape/page-text.ts`**, the default. Fetches the product page
+   through the same SSRF-guarded fetcher everything else uses and extracts
+   readable text with no dependency, no key and no third party. A Shopify theme
+   renders the ingredient blocks, the how-to-use section and the FAQ into the
+   HTML the server returns, so there is nothing to render in a browser.
+2. **Firecrawl**, if `FIRECRAWL_API_KEY` is set, for a storefront where that is
+   not true, or when the direct read comes back empty or refused.
+
+Both failing is a stated warning on screen, not silence. That distinction
+matters more than it sounds: enrichment used to be skipped without comment
+whenever no Firecrawl key was configured, so a brief asking the model to
+"answer the single biggest objection" had one sentence of product description
+to reason from, and the resulting offer-led creative looked like the model
+ignoring the brief rather than the brief having nothing in it.
+
+Hard product facts never come from either reader. Price, concentrations and
+images come from the structured Shopify JSON, because a parsed number beats a
+number recovered from prose.
+
 ## How a creative is composed
 
 `config/brand.ts` holds three layers, and the distinction between them is the
@@ -202,7 +225,7 @@ that env block is declarative, so a variable set in the dashboard but missing
 from the map is liable to be dropped by `railway config apply` — at which point
 the gate silently falls back to the default published in this repository.
 
-## Bring your own key — `/keys`
+## Bring your own key, at `/keys`
 
 Paste a Gemini key at `/keys` and this browser spends it instead of the
 deployment's. Useful for a demo, a client's quota, or an exhausted key.

@@ -100,6 +100,25 @@ export async function POST(request: Request) {
       placements: Object.values(PLACEMENTS),
     });
   } catch (error) {
+    /*
+     * A failed read still gets a run.
+     *
+     * The id was minted above and then only recorded on success, so the one run
+     * somebody actually needs to send you, the one where the page would not
+     * read, had no identity at all. Generate and score both open their run
+     * before doing any work for exactly this reason; this was the last path
+     * that did not.
+     */
+    await finishRun({
+      id: runId,
+      status: "failed",
+      summary: "Could not read the product page",
+      productUrl: verdict.canonical,
+      costUsd: 0,
+      inputs: { stage: "resolved", url: parsed.data.url, canonical: verdict.canonical },
+      error: error instanceof Error ? error.message : String(error),
+    });
+
     if (error instanceof FetchRejectedError) {
       return NextResponse.json(
         { error: error.message, reason: error.reason },

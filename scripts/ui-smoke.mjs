@@ -355,6 +355,16 @@ async function run(theme) {
     check("headline rendered", (await page.locator(".ad-headline").first().innerText()).length > 0);
     check("CTA rendered", (await page.locator(".ad-cta").first().innerText()).length > 0);
     check("download offered", (await page.locator("a[download]").count()) > 0);
+    // The brief must actually have the page copy. Without it, an angle like
+    // "answer the biggest objection" is unanswerable and the creative falls
+    // back to whatever the offer says, which is what it used to do.
+    const enrichNotice = await page.locator(".notice").allInnerTexts();
+    check(
+      "the brief was written from the product page, not just the JSON",
+      enrichNotice.some((t) => /characters of the product page/.test(t)) &&
+        !enrichNotice.some((t) => /thin brief/.test(t)),
+      enrichNotice.join(" | ").slice(0, 120),
+    );
 
     await page.locator("details summary").first().click();
     const prompt = await page.locator("pre.prompt").first().innerText();

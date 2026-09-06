@@ -344,8 +344,49 @@ export function buildUserPrompt(input: BriefInput): string {
     `Objective: ${objective}. ${OBJECTIVE_GUIDANCE[objective]}`,
     `Placement: ${placement.label}, ${placement.width}×${placement.height}px (${placement.platform})`,
     input.audience ? `Audience: ${input.audience}` : "",
-    input.angleHint ? `Angle to explore: ${input.angleHint}` : "",
     `Produce ${input.conceptCount} DISTINCT concepts. Distinct means a different strategic angle, not reworded copy.`,
+    "",
+    /*
+     * The angle is an instruction, not a suggestion, and it needs its own block
+     * saying so.
+     *
+     * It used to be one line reading "Angle to explore: ...", buried in this
+     * list between the placement and the concept count, competing against two
+     * far more forceful neighbours: the conversion objective ("Lead with the
+     * specific outcome and the offer") and an offer marked "feature verbatim,
+     * print exactly as written". It lost every time. A run briefed to answer
+     * the single biggest objection came back as a large "15% OFF" over a
+     * struck-through price, which is a faithful reading of everything on the
+     * page EXCEPT the angle.
+     *
+     * The fix is not to shout louder, it is to say which instruction governs
+     * what. The angle decides what the creative ARGUES. The objective decides
+     * how hard it asks for the sale. Those are different jobs and they stop
+     * fighting once the prompt says so.
+     */
+    ...(input.angleHint
+      ? [
+          "## The angle. This governs the concept.",
+          "",
+          `The angle for this brief is: ${input.angleHint}`,
+          "",
+          "This is not a suggestion to weigh against the objective. It decides",
+          "what each concept ARGUES, and the headline has to carry it: someone",
+          "reading only the headline should be able to tell you which angle was",
+          "briefed. The objective decides how hard the creative asks for the",
+          "sale, and the offer, if there is one, is the THIRD read at most.",
+          "",
+          "If the angle names an objection, a concern or a comparison, the",
+          "creative has to answer it with something specific from the product",
+          "page. Do not restate the angle as a slogan; use it, then say the",
+          "thing that resolves it. A concept whose headline could have been",
+          "written without this angle has not used it.",
+          "",
+          input.offer
+            ? `The offer is still printed verbatim, but it is a supporting line rather than the headline. An offer set as the largest element in the frame means the angle was ignored.`
+            : "",
+        ].filter(Boolean)
+      : []),
     "",
     "## Copy limits. These are hard ceilings; count the characters.",
     `headline ≤ ${input.copyLimits?.headline ?? COPY_LIMITS.headline}`,
@@ -439,6 +480,12 @@ export interface ImagePromptSettings {
   priceDisplay?: PriceDisplay;
   /** The placement's own chrome rule, for the frames that have one. */
   safeZone?: string | null;
+  /**
+   * What the creative argues. The copy model was told; the image model was not,
+   * so the layout could be assembled around an offer while the copy answered an
+   * objection, and the two halves of the same creative disagreed.
+   */
+  angle?: string | null;
 }
 
 export function renderImagePrompt(
@@ -513,6 +560,15 @@ export function renderImagePrompt(
     );
   } else {
     lines.push("", "Render no text at all.");
+  }
+
+  if (settings.angle) {
+    lines.push(
+      "",
+      `This creative argues one thing: ${settings.angle}. The largest element in`,
+      "the frame must serve that argument. If an offer or a price appears, it is",
+      "a supporting line, not the hero.",
+    );
   }
 
   lines.push(

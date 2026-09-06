@@ -239,13 +239,18 @@ export async function POST(request: Request) {
     );
     const claims = claimsFrom(snapshot);
 
-    // ── enrich (optional) ─────────────────────────────────────────────────
+    // ── enrich ────────────────────────────────────────────────────────────
     // Shopify's JSON gives the description field only; the rendered page also
-    // carries ingredients, mechanism and usage. Best-effort — a failure here
-    // costs copy depth, never correctness.
+    // carries ingredients, mechanism, usage and the FAQ copy that an
+    // objection-led brief needs in order to know what the objections are.
+    // Best effort: a failure here costs copy depth, never correctness, but it
+    // is now REPORTED rather than silently skipped.
     const { page, warning: enrichmentWarning } = await tryScrapePage(
       snapshot.sourceUrl,
-      config.FIRECRAWL_API_KEY,
+      {
+        allowedHosts: config.STORE_ALLOWED_HOSTS,
+        apiKey: config.FIRECRAWL_API_KEY,
+      },
     );
 
     // ── brief, one per frame shape ────────────────────────────────────────
@@ -392,6 +397,7 @@ export async function POST(request: Request) {
         brandMark: input.brandMark,
         priceDisplay: input.priceDisplay,
         safeZone: placement.safeZone ?? null,
+        angle: input.angleHint ?? null,
       });
       try {
         const image = await imageProvider.generate({
@@ -493,6 +499,7 @@ export async function POST(request: Request) {
       models: { text: textModel, image: config.GEMINI_IMAGE_MODEL },
       enrichment: {
         used: page !== null,
+        source: page?.source ?? null,
         chars: page?.markdown.length ?? 0,
         warning: enrichmentWarning,
       },

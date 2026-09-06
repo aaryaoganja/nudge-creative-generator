@@ -248,6 +248,47 @@ globalThis.fetch = (async (
     });
   }
 
+  /*
+   * The product page as HTML, for the enrichment reader.
+   *
+   * Shaped like a real Shopify PDP rather than a stub: theme scripts, nav
+   * chrome, an ingredient list and an FAQ. The FAQ is the part that matters,
+   * because it is where the objections live, and a brief asking the model to
+   * answer one is unanswerable without it. Serving this offline means the smoke
+   * test exercises src/lib/scrape/page-text.ts instead of always running with a
+   * thin brief and never covering the reader at all.
+   */
+  if (url.includes("/products/") && !url.endsWith(".js") && !url.endsWith(".json")) {
+    return new Response(
+      `<!doctype html><html><head>
+<title>Hair Growth + Anti-Grey 15.6% Hair Serum</title>
+<meta property="og:description" content="A 15.6% blend of six actives.">
+<script>window.ShopifyAnalytics={};</script><style>.x{color:red}</style>
+</head><body>
+<nav><a href="/">Shop</a><a href="/cart">0</a></nav>
+<main>
+<h1>Hair Growth + Anti-Grey 15.6% Hair Serum</h1>
+<div class="rte">
+<p>Greying is pigment loss at the follicle, not damage to the strand. Thinning and greying have different causes and need different actives, which is why this is a blend rather than a single ingredient.</p>
+<h2>How it works</h2>
+<ul>
+<li>Darkenyl supports melanin synthesis at the root</li>
+<li>Redensyl targets the dormant follicle</li>
+<li>Procapil strengthens the anchoring of existing hair</li>
+</ul>
+<h2>FAQs</h2>
+<p>Will it reverse hair that has already turned grey? No. It supports pigment in hair still being produced; strands that are already white stay white.</p>
+<p>Is it greasy? It is a water-light serum, not an oil, and is left in overnight.</p>
+<p>How long before I see a change? Shedding usually settles first, at around six weeks. Pigment changes take longer and are gradual.</p>
+</div>
+</main>
+<footer>&copy; Minimalist</footer>
+<noscript>Enable JavaScript</noscript>
+</body></html>`,
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    );
+  }
+
   if (url.includes(":generateContent")) {
     if (url.includes("image")) {
       return json({

@@ -1,11 +1,11 @@
 /**
- * Firecrawl — full rendered page content, as markdown.
+ * Firecrawl, for pages that only assemble themselves in a browser.
  *
  * ── Why this exists alongside the Shopify JSON client ─────────────────────
  * Shopify's `/products/<handle>.js` returns the product's `description` field
  * and nothing else. The page a customer actually sees usually carries far more:
  * ingredient breakdowns, how-to-use, "why it works", FAQ blocks, and review
- * summaries — rendered from metafields, theme sections or third-party apps, and
+ * summaries, rendered from metafields, theme sections or third-party apps and
  * absent from the JSON entirely.
  *
  * That extra material matters twice over:
@@ -14,28 +14,35 @@
  *   - the SCORER gets a wider source of truth, so a claim that appears in a
  *     creative can be checked against the whole page rather than one field
  *
- * It is strictly an ENRICHMENT. Product facts — price, concentrations, images —
+ * It is strictly an ENRICHMENT. Product facts (price, concentrations, images)
  * still come from the structured JSON, because a parsed number beats a number
  * read out of prose. If Firecrawl is unconfigured, rate-limited or down, the
  * pipeline proceeds without it rather than failing.
  *
+ * It is also no longer the first choice. src/lib/scrape/page-text.ts reads the
+ * same page with no key and no third party, because a Shopify theme renders its
+ * content server-side; this is the fallback for a storefront where that is not
+ * true. See tryScrapePage at the bottom of this file.
+ *
  * ── Verification status ───────────────────────────────────────────────────
  * Endpoint, auth scheme and request shape are taken from the published v2
  * OpenAPI description: POST https://api.firecrawl.dev/v2/scrape, bearer auth,
- * a `url` plus scrape options. The RESPONSE envelope is parsed defensively —
- * both `{ success, data: { markdown } }` and a flat `{ markdown }` are accepted
- * — because the exact wrapper could not be confirmed from this environment.
+ * a `url` plus scrape options. The RESPONSE envelope is parsed defensively:
+ * both `{ success, data: { markdown } }` and a flat `{ markdown }` are
+ * accepted, because the exact wrapper could not be confirmed from this
+ * environment.
  */
+
+import { fetchPageText, type PageText } from "./page-text.ts";
 
 const API_URL = "https://api.firecrawl.dev/v2/scrape";
 
-export interface FirecrawlPage {
-  markdown: string;
-  title: string | null;
-  description: string | null;
-  sourceUrl: string;
-  fetchedAt: string;
-}
+/**
+ * Kept as an alias rather than a second shape. Both readers produce the same
+ * thing, so callers never branch on which one answered; they read `source` if
+ * they want to tell the user.
+ */
+export type FirecrawlPage = Omit<PageText, "source">;
 
 export class FirecrawlError extends Error {
   readonly status?: number;
@@ -162,22 +169,68 @@ export async function scrapePage(
  * Best-effort enrichment. Returns null on any failure — a missing page body
  * degrades copy quality, it does not justify failing the run.
  */
+export interface EnrichOptions {
+  apiKey?: string;
+  allowedHosts: string[];
+  maxChars?: number;
+}
+
+/**
+ * The full product page, by whichever reader can get it.
+ *
+ * Order matters and is deliberate. The built-in reader goes FIRST because a
+ * Shopify theme renders the ingredient blocks, the how-to-use section and the
+ * FAQ into the HTML the server returns; Firecrawl is the fallback for a
+ * storefront that genuinely assembles itself in a browser, and for the case
+ * where the direct fetch is refused.
+ *
+ * This used to return `{ page: null, warning: null }` the moment no API key was
+ * configured, which is the worst of both: enrichment was silently off on any
+ * deployment without a Firecrawl key, and nothing anywhere said so. A brief
+ * asking the model to "answer the single biggest objection" then had one
+ * sentence of product description to work from, because the objections live in
+ * the page copy that was never fetched. Both readers failing is now a stated
+ * warning, not silence.
+ */
 export async function tryScrapePage(
   url: string,
-  apiKey: string | undefined,
-  maxChars = 6000,
-): Promise<{ page: FirecrawlPage | null; warning: string | null }> {
-  if (!apiKey) {
-    return { page: null, warning: null };
-  }
+  options: EnrichOptions,
+): Promise<{ page: PageText | null; warning: string | null }> {
+  const maxChars = options.maxChars ?? 6000;
+  const problems: string[] = [];
+
   try {
-    return { page: await scrapePage(url, { apiKey, maxChars }), warning: null };
+    const page = await fetchPageText(url, {
+      allowedHosts: options.allowedHosts,
+      maxChars,
+    });
+    // A page that yielded almost nothing is a page this reader could not read,
+    // whatever the HTTP status said. Fall through rather than enrich with
+    // three words of navigation.
+    if (page.markdown.length >= 200) return { page, warning: null };
+    problems.push(
+      `the page returned only ${page.markdown.length} characters of readable text`,
+    );
   } catch (error) {
-    return {
-      page: null,
-      warning: `Page enrichment unavailable (${
-        error instanceof Error ? error.message : String(error)
-      }). Working from the structured product data only.`,
-    };
+    problems.push(error instanceof Error ? error.message : String(error));
   }
+
+  if (options.apiKey) {
+    try {
+      const page = await scrapePage(url, { apiKey: options.apiKey, maxChars });
+      return { page: { ...page, source: "firecrawl" as const }, warning: null };
+    } catch (error) {
+      problems.push(
+        `Firecrawl: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  return {
+    page: null,
+    warning:
+      `Could not read the full product page (${problems.join("; ")}). ` +
+      `Working from the structured product data only, which is thinner: ` +
+      `ingredient detail, usage and FAQ copy are not available to this brief.`,
+  };
 }

@@ -75,22 +75,72 @@ describe("tidyMarkdown", () => {
   });
 });
 
-describe("tryScrapePage — enrichment must never fail the run", () => {
-  it("no-ops silently when no key is configured", async () => {
-    const result = await tryScrapePage("https://x/products/y", undefined);
-    assert.equal(result.page, null);
-    assert.equal(result.warning, null, "an unset optional key is not a warning");
+describe("tryScrapePage, enrichment must never fail the run", () => {
+  const HOSTS = ["beminimalist.co", "x"];
+
+  it("says so when nothing could read the page", async () => {
+    // Previously this returned {page: null, warning: null} whenever no
+    // Firecrawl key was set, so enrichment was silently off on any deployment
+    // without one and nothing anywhere reported it. Silence is the failure
+    // mode being tested against.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof fetch;
+    try {
+      const result = await tryScrapePage("https://x/products/y", {
+        allowedHosts: HOSTS,
+      });
+      assert.equal(result.page, null);
+      assert.ok(result.warning, "a failed enrichment must not be silent");
+      assert.match(result.warning ?? "", /structured product data only/i);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
-  it("degrades to a warning when the API errors", async () => {
+  it("falls back to Firecrawl when the direct read fails", async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response("rate limited", { status: 429 })) as typeof fetch;
+    let calls = 0;
+    globalThis.fetch = (async (input: unknown) => {
+      calls += 1;
+      if (String(input).includes("api.firecrawl.dev")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: { markdown: "# Page\n\nIngredients: Darkenyl." },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("blocked", { status: 403 });
+    }) as typeof fetch;
+
     try {
-      const result = await tryScrapePage("https://x/products/y", "key");
+      const result = await tryScrapePage("https://beminimalist.co/products/y", {
+        allowedHosts: HOSTS,
+        apiKey: "k-123",
+      });
+      assert.equal(result.warning, null);
+      assert.equal(result.page?.source, "firecrawl");
+      assert.ok(calls >= 2, "the direct read must be attempted first");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("reports both failures when neither reader can get the page", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) =>
+      String(input).includes("api.firecrawl.dev")
+        ? new Response("rate limited", { status: 429 })
+        : new Response("blocked", { status: 403 })) as typeof fetch;
+    try {
+      const result = await tryScrapePage("https://beminimalist.co/products/y", {
+        allowedHosts: HOSTS,
+        apiKey: "key",
+      });
       assert.equal(result.page, null);
-      assert.match(result.warning ?? "", /enrichment unavailable/i);
       assert.match(result.warning ?? "", /429/);
+      assert.match(result.warning ?? "", /Firecrawl/);
     } finally {
       globalThis.fetch = original;
     }
@@ -118,7 +168,10 @@ describe("tryScrapePage — enrichment must never fail the run", () => {
     }) as typeof fetch;
 
     try {
-      const result = await tryScrapePage("https://beminimalist.co/products/y", "k-123");
+      const result = await tryScrapePage("https://beminimalist.co/products/y", {
+        allowedHosts: ["beminimalist.co"],
+        apiKey: "k-123",
+      });
       assert.equal(seenUrl, "https://api.firecrawl.dev/v2/scrape");
       assert.equal(seenAuth, "Bearer k-123");
       assert.deepEqual(seenBody.formats, ["markdown"]);

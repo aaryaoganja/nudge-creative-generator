@@ -208,10 +208,10 @@ export async function POST(request: Request) {
 
       // Widens what can actually be checked: a benefit claimed in the creative
       // may be supported by an ingredient section the product JSON omits.
-      const enriched = await tryScrapePage(
-        snapshot.sourceUrl,
-        config.FIRECRAWL_API_KEY,
-      );
+      const enriched = await tryScrapePage(snapshot.sourceUrl, {
+        allowedHosts: config.STORE_ALLOWED_HOSTS,
+        apiKey: config.FIRECRAWL_API_KEY,
+      });
       pageMarkdown = enriched.page?.markdown ?? null;
     } catch (error) {
       // A failed scrape must degrade to unverified, not fail the whole score.

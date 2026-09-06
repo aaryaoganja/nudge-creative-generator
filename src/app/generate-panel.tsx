@@ -275,6 +275,21 @@ export function GeneratePanel({
     { name: string; policy: { findings: PolicyFinding[] } }[]
   >([]);
   const [cost, setCost] = useState<{ totalUsd: number } | null>(null);
+  /*
+   * How much of the product page the brief actually had.
+   *
+   * Worth showing, because it is the difference between a brief that can answer
+   * an objection and one that cannot: the objections live in the FAQ and the
+   * ingredient copy, not in the one-sentence description the Shopify JSON
+   * returns. When this said nothing, a creative that ignored the angle looked
+   * like the model disobeying rather than the model having nothing to work with.
+   */
+  const [enrichment, setEnrichment] = useState<{
+    used: boolean;
+    source: string | null;
+    chars: number;
+    warning: string | null;
+  } | null>(null);
 
   async function resolve(event: React.FormEvent) {
     event.preventDefault();
@@ -283,6 +298,7 @@ export function GeneratePanel({
     setSnapshot(null);
     setBlocked([]);
     setCost(null);
+    setEnrichment(null);
     // A new read is a new run. Leaving the old id in the URL would give the
     // next link the previous product's payload.
     onClearRunId();
@@ -413,6 +429,7 @@ export function GeneratePanel({
         if (Array.isArray(payload.results)) setResults(payload.results);
         if (Array.isArray(payload.blocked)) setBlocked(payload.blocked);
         if (payload.cost) setCost(payload.cost);
+        if (payload.enrichment) setEnrichment(payload.enrichment);
       })
       .catch((cause) => {
         if (live) setError(cause instanceof Error ? cause.message : String(cause));
@@ -474,6 +491,7 @@ export function GeneratePanel({
       setResults(data.results);
       setBlocked(data.blocked ?? []);
       setCost(data.cost);
+      setEnrichment(data.enrichment ?? null);
       if (data.runId) {
         mintedHere.current.add(data.runId);
         onRunId(data.runId);
@@ -841,8 +859,19 @@ export function GeneratePanel({
 
       {results && (
         <>
+          {enrichment && !enrichment.used && (
+            <div className="notice">
+              <span className="badge unverified">thin brief</span>{" "}
+              {enrichment.warning ??
+                "The full product page could not be read, so this brief was written from the structured product data only."}
+            </div>
+          )}
+
           {cost && (
             <div className="notice">
+              {enrichment?.used
+                ? `Read ${enrichment.chars.toLocaleString()} characters of the product page. `
+                : ""}
               Spent ${cost.totalUsd.toFixed(4)} on this run
               {blocked.length > 0 &&
                 ` · ${blocked.length} concept${blocked.length > 1 ? "s" : ""} blocked before generation, so no image spend on ${blocked.length > 1 ? "those" : "that one"}`}

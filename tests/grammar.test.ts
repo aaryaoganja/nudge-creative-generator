@@ -244,3 +244,71 @@ describe("renderImagePrompt expands the chosen archetype", () => {
     assert.match(rendered, /\(no fixed value\) {2}Product accent/);
   });
 });
+
+describe("the angle governs the concept, rather than being a suggestion", () => {
+  /**
+   * A run briefed with "Answer the single biggest objection", a conversion
+   * objective and a 15% offer came back as a large "15% OFF" over a
+   * struck-through price. Every instruction on the page was obeyed except the
+   * angle, because the angle was one line reading "Angle to explore" sitting
+   * between two far more forceful ones.
+   */
+  const withAngle = (angle?: string, offer?: string) =>
+    buildUserPrompt({
+      snapshot: SNAPSHOT,
+      claims: CLAIMS as never,
+      placement: PLACEMENTS.meta_feed_4x5,
+      objective: "conversion",
+      conceptCount: 2,
+      angleHint: angle,
+      offer,
+    });
+
+  it("gives the angle its own instruction block", () => {
+    const prompt = withAngle("Answer the single biggest objection");
+    assert.match(prompt, /## The angle\. This governs the concept\./);
+    assert.match(prompt, /Answer the single biggest objection/);
+    // The wording that made it losable is gone.
+    assert.ok(!prompt.includes("Angle to explore"), "still phrased as a suggestion");
+  });
+
+  it("says explicitly which instruction wins over which", () => {
+    const prompt = withAngle("Answer the single biggest objection");
+    assert.match(prompt, /decides\s*\n?\s*what each concept ARGUES/);
+    assert.match(prompt, /objective decides how hard/);
+  });
+
+  it("demotes the offer to a supporting line when an angle is set", () => {
+    const prompt = withAngle("Answer the single biggest objection", "15% off");
+    assert.match(prompt, /supporting line rather than the headline/);
+    assert.match(prompt, /largest element in the frame means the angle was ignored/);
+  });
+
+  it("says nothing about angle precedence when no angle was given", () => {
+    const prompt = withAngle(undefined, "15% off");
+    assert.ok(!prompt.includes("## The angle"), prompt.slice(0, 300));
+    // The offer is still printed verbatim; only its rank changes.
+    assert.match(prompt, /Offer to feature verbatim/);
+  });
+
+  it("carries the angle into the image prompt too", () => {
+    // The copy model was told and the image model was not, so the layout could
+    // be built around an offer while the copy answered an objection.
+    const rendered = renderImagePrompt(
+      imagePrompt("Formula callout"),
+      PLACEMENTS.meta_feed_4x5,
+      { angle: "Answer the single biggest objection" },
+    );
+    assert.match(rendered, /argues one thing: Answer the single biggest objection/);
+    assert.match(rendered, /supporting line, not the hero/);
+  });
+
+  it("says nothing to the image model when no angle was set", () => {
+    const rendered = renderImagePrompt(
+      imagePrompt("Formula callout"),
+      PLACEMENTS.meta_feed_4x5,
+      {},
+    );
+    assert.ok(!rendered.includes("argues one thing"), rendered);
+  });
+});
