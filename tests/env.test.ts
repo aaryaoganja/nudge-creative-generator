@@ -77,9 +77,7 @@ describe("provider keys are optional", () => {
   it("boots with no provider keys at all", () => {
     delete process.env.DATABASE_URL;
     delete process.env.GEMINI_API_KEY;
-    delete process.env.FIRECRAWL_API_KEY;
     const config = env();
     assert.equal(config.GEMINI_API_KEY, undefined);
-    assert.equal(config.FIRECRAWL_API_KEY, undefined);
   });
 });

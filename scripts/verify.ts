@@ -1,15 +1,15 @@
 /**
  * Live provider verification — proves the keys and wire shapes actually work.
  *
- *   railway run npm run verify              # free: models + text round-trip + Firecrawl
+ *   railway run npm run verify              # free: models, text round-trip, page read
  *   railway run npm run verify -- --image   # adds one real generation (~$0.134)
  *
  * `npm run models` only lists what a key can see. This actually SENDS something
  * and reads the reply, which is the only way to confirm the request shapes in
- * gemini-text.ts, gemini-image.ts and firecrawl.ts are accepted — the one class
+ * gemini-text.ts and gemini-image.ts are accepted, the one class
  * of fault the offline smoke test cannot reach.
  *
- * Each check is independent and reports on its own, so a Firecrawl failure does
+ * Each check is independent and reports on its own, so a page-read failure does
  * not hide a Gemini success. Exit code is non-zero if any free check fails.
  */
 
@@ -18,7 +18,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { GeminiTextClient } from "../src/lib/providers/gemini-text.ts";
 import { GeminiImageProvider } from "../src/lib/providers/gemini-image.ts";
-import { scrapePage } from "../src/lib/scrape/firecrawl.ts";
+import { fetchPageText } from "../src/lib/scrape/page-text.ts";
 import { readImageMeta } from "../src/lib/image/meta.ts";
 
 interface Check {
@@ -144,26 +144,41 @@ async function checkVision(apiKey: string, model: string) {
   }
 }
 
-async function checkFirecrawl(apiKey: string | undefined, url: string) {
-  if (!apiKey) {
-    record("Firecrawl page enrichment", true, "no key set — enrichment is optional, skipping", true);
-    return;
-  }
+/**
+ * Can this deployment read the product page?
+ *
+ * The one check that has to run from inside the container. A storefront that
+ * serves its content happily to a browser can still refuse a datacentre IP, and
+ * that is the only circumstance in which a hosted scraper would be worth
+ * reintroducing. If this passes, the built-in reader is enough.
+ */
+async function checkPageRead(productUrl: string) {
+  const hosts = (process.env.STORE_ALLOWED_HOSTS ?? "beminimalist.co")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+
   try {
-    const page = await scrapePage(url, { apiKey, maxChars: 4000 });
+    const page = await fetchPageText(productUrl, { allowedHosts: hosts });
+    const hasSubstance = page.markdown.length >= 200;
     record(
-      "Firecrawl page enrichment",
-      page.markdown.length > 0,
-      `${page.markdown.length} chars of markdown · title: ${page.title ?? "—"}`,
+      "Product page read (no key, no third party)",
+      hasSubstance,
+      hasSubstance
+        ? `${page.markdown.length} chars, title: ${page.title ?? "none"}`
+        : `only ${page.markdown.length} chars came back, which is not enough to enrich a brief`,
     );
-    console.log(
-      `      first 160 chars: ${page.markdown.slice(0, 160).replace(/\n/g, " ")}…`,
-    );
+    if (hasSubstance) {
+      console.log(
+        `      first 160 chars: ${page.markdown.slice(0, 160).replace(/\n/g, " ")}`,
+      );
+    }
   } catch (error) {
     record(
-      "Firecrawl page enrichment",
+      "Product page read (no key, no third party)",
       false,
-      `${errorText(error)}\n      → check FIRECRAWL_API_KEY, or the shape in src/lib/scrape/firecrawl.ts`,
+      `${errorText(error)}\n      the storefront refused this container. Briefs will` +
+        `\n      still generate, from the product JSON alone, and the UI will say so.`,
     );
   }
 }
@@ -231,7 +246,7 @@ async function main(): Promise<number> {
   await checkModelsVisible(apiKey, textModel, imageModel);
   await checkTextRoundTrip(apiKey, textModel);
   await checkVision(apiKey, textModel);
-  await checkFirecrawl(process.env.FIRECRAWL_API_KEY, productUrl);
+  await checkPageRead(productUrl);
 
   if (values.image) {
     await checkImageGeneration(apiKey, imageModel, values.out ?? "out/verify");

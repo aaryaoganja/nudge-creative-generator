@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ShopifyClient, ShopifyFetchError } from "@/lib/scrape/shopify";
 import { parseProductUrl } from "@/lib/scrape/product-url";
-import { tryScrapePage } from "@/lib/scrape/firecrawl";
+import { readProductPage } from "@/lib/scrape/page-text";
 import { safeFetchBinary, FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient, describeSchemaFailure } from "@/lib/providers/gemini-text";
 import { GeminiImageProvider } from "@/lib/providers/gemini-image";
@@ -245,12 +245,9 @@ export async function POST(request: Request) {
     // objection-led brief needs in order to know what the objections are.
     // Best effort: a failure here costs copy depth, never correctness, but it
     // is now REPORTED rather than silently skipped.
-    const { page, warning: enrichmentWarning } = await tryScrapePage(
+    const { page, warning: enrichmentWarning } = await readProductPage(
       snapshot.sourceUrl,
-      {
-        allowedHosts: config.STORE_ALLOWED_HOSTS,
-        apiKey: config.FIRECRAWL_API_KEY,
-      },
+      { allowedHosts: config.STORE_ALLOWED_HOSTS },
     );
 
     // ── brief, one per frame shape ────────────────────────────────────────

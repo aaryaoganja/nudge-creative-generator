@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ShopifyClient } from "@/lib/scrape/shopify";
-import { tryScrapePage } from "@/lib/scrape/firecrawl";
+import { readProductPage } from "@/lib/scrape/page-text";
 import { FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient } from "@/lib/providers/gemini-text";
 import { scoreCreative } from "@/lib/pipeline/score";
@@ -208,9 +208,8 @@ export async function POST(request: Request) {
 
       // Widens what can actually be checked: a benefit claimed in the creative
       // may be supported by an ingredient section the product JSON omits.
-      const enriched = await tryScrapePage(snapshot.sourceUrl, {
+      const enriched = await readProductPage(snapshot.sourceUrl, {
         allowedHosts: config.STORE_ALLOWED_HOSTS,
-        apiKey: config.FIRECRAWL_API_KEY,
       });
       pageMarkdown = enriched.page?.markdown ?? null;
     } catch (error) {

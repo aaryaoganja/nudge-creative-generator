@@ -1,301 +1,268 @@
-# nudge-creative-generator
+# Ad Studio
 
-Next.js 16 (App Router) + Postgres, packaged for Railway.
+Paste a Minimalist product URL and get ad creatives sized for the Meta and
+Google placements you picked. Or upload any creative, ours or a competitor's,
+and get it scored against the brand's identity and India's advertising rules.
 
-Paste a Minimalist product URL, get ad creatives sized for the Meta and Google
-placements you picked. Upload any creative — ours or anyone's — and get it
-scored against the brand's identity and India's advertising rules.
+Every run has a link. Copy it from the address bar and send it to someone; they
+sign in and see exactly what you saw.
 
-Both halves are real: the product is read from Shopify's own JSON, the brief and
-the copy come from Gemini 3.7 Flash, the images from Nano Banana Pro, and a
-deterministic policy gate runs over the copy **before** any image is paid for.
+Built on Next.js 16 and Postgres, deployed on Railway, running entirely on one
+Gemini key.
 
-## Stack
+---
 
-| Piece | Choice |
-| --- | --- |
-| Framework | Next.js 16.3.4, App Router, `output: "standalone"` |
-| Runtime | Node 22 |
-| Database | Postgres via Prisma 7 with the `@prisma/adapter-pg` driver adapter |
-| Build | Dockerfile (multi-stage) |
-| Platform config | Railway Infrastructure as Code (`.railway/railway.ts`) |
+## What it does, in order
 
-## Local development
+**1. Reads the product.** You paste a URL. It fetches the product from
+Shopify's own JSON endpoints for the hard facts (price, concentrations, images)
+and reads the rendered page for the substance (ingredients, how to use, the
+FAQ). Nothing is invented, and nothing goes through a third-party scraper.
 
-```bash
-npm install
-cp .env.example .env.local        # then set DATABASE_URL
-npx prisma migrate dev            # apply migrations
-npm run dev
-```
+**2. Shows you what it read, and lets you correct it.** Price, compare-at
+price and concentrations appear in editable fields. Whatever is in those fields
+is what the creative may state, and nothing else. This step is free.
 
-Verify:
+**3. Writes a brief.** Gemini 3.7 Flash writes concepts and copy against the
+brand's voice, the campaign objective, the angle you chose and the placements
+you ticked. One brief per frame shape, because a plan for a tall story is not a
+plan for a landscape banner.
 
-```bash
-curl localhost:3000/api/health          # open, and deliberately terse when signed out
-```
+**4. Checks the copy before spending anything.** A deterministic gate reads
+every headline, every line of body copy and every string destined to be drawn
+into the image. A percentage or rupee figure that is not in the product data or
+in the offer you typed is blocked outright. This runs before any image is paid
+for, because catching a bad claim in text is free and catching it after nine
+generations is not.
 
-Everything else is behind the password gate — open http://localhost:3000 and
-sign in. See **The gate** below.
+**5. Generates the images.** Nano Banana Pro renders each surviving concept
+into each selected placement, using the product's own photograph as a reference
+so the packaging is reproduced rather than reimagined.
 
-## Scraper
+**6. Keeps the run.** Everything above is stored under one id: the inputs, the
+copy, the exact prompt sent to the image model, the policy verdicts, the cost
+and the images. That is what the shared link opens.
 
-Product data comes from Shopify's own JSON endpoints — no scraping service, no
-headless browser, no API key:
+---
 
-```
-GET /products.json?limit=250&page=N   the whole catalogue, paginated
-GET /products/<handle>.js             one product
-```
+## The two things this is strict about
 
-The CLI runs on plain Node with no build step, so the same command works
-locally, in CI and inside the Railway container:
+### Claims
 
-```bash
-npm run scrape -- product https://beminimalist.co/products/<handle>
-npm run scrape -- catalog --limit 5 --pages 1     # quick smoke test
-npm run scrape -- catalog --json > catalogue.json
-npm run scrape -- brand                           # fonts, colours, logo
-```
+The brand prints active concentrations on the front of the pack. Those are
+regulated figures under the ASCI code, and a cosmetic that claims to treat a
+disease becomes a drug under the Drugs and Cosmetics Rules 1945. So the model
+is never trusted with a number.
 
-**Verifying it works where it actually has to run.** A scrape that succeeds on a
-laptop proves nothing about the container's egress, so run it in the deployed
-environment:
+It is handed the exact concentrations and prices from the product data and told
+they are the only numeric claims permitted. Then a pure function checks that it
+complied. Any percentage or rupee figure the model produced that is not on that
+list is a blocking finding, and the concept is dropped before an image is
+generated.
 
-```bash
-railway run npm run scrape -- catalog --limit 5 --pages 1
-```
+The one addition to that list is the offer field. A promotion is a fact about
+your campaign, not about the product page, so a figure you type there is a
+claim you have authorised and is printed exactly as written. Only the exact
+figures you typed, never their neighbours: authorising "20% off" does not
+license the model to write 25%.
 
-Exit codes: `0` success, `1` fetch failure, `2` rejected input (not a product
-URL, host not allowlisted).
+### Punctuation
 
-### Two things the scraper gets right on purpose
+The product renders no em dashes and no ellipses, anywhere. Not in the
+interface, not in the prompts, and not in generated ad copy. Instructing a
+model not to use a character works most of the time, and most of the time is
+not good enough when the failure gets drawn into a 2K image that cannot be
+edited afterwards. So model output passes through a transform that rewrites
+them, and a browser test asserts nothing on screen carries one.
 
-**Money units differ between the endpoints.** `/products.json` returns
-`"810.00"` (major units); `/products/<handle>.js` returns `81000` (minor units).
-Reading the second as rupees prices the product at ₹81,000. Both are normalised
-to integer minor units in `src/lib/scrape/shopify.ts` and nowhere else.
-
-**Both product URL forms are valid.** Shopify serves a product at
-`/products/<handle>` *and* at `/collections/<collection>/products/<handle>` —
-the second is what people copy out of the address bar. Canonicalisation strips
-`utm_*`, `fbclid` and `gclid` but **preserves `?variant=`**, because variants
-carry different prices and images.
-
-### Outbound fetch safety
-
-Every fetch of a user-supplied URL goes through `src/lib/http/safe-fetch.ts`:
-https only, DNS resolved and checked against private/loopback/link-local ranges
-before connecting (169.254.169.254 is the cloud metadata endpoint), every
-redirect hop re-validated, responses size-capped while streaming, and a host
-allowlist from `STORE_ALLOWED_HOSTS`.
+---
 
 ## Reading the product page
 
-Two readers, tried in order:
+There are two sources, doing different jobs.
 
-1. **`src/lib/scrape/page-text.ts`**, the default. Fetches the product page
-   through the same SSRF-guarded fetcher everything else uses and extracts
-   readable text with no dependency, no key and no third party. A Shopify theme
-   renders the ingredient blocks, the how-to-use section and the FAQ into the
-   HTML the server returns, so there is nothing to render in a browser.
-2. **Firecrawl**, if `FIRECRAWL_API_KEY` is set, for a storefront where that is
-   not true, or when the direct read comes back empty or refused.
+Shopify's JSON endpoints give the **hard facts**: title, price, compare-at
+price, images, tags. These are parsed numbers, and a parsed number beats a
+number recovered from prose, so every claim traces back here.
 
-Both failing is a stated warning on screen, not silence. That distinction
-matters more than it sounds: enrichment used to be skipped without comment
-whenever no Firecrawl key was configured, so a brief asking the model to
-"answer the single biggest objection" had one sentence of product description
-to reason from, and the resulting offer-led creative looked like the model
-ignoring the brief rather than the brief having nothing in it.
+The rendered page gives the **substance**: ingredient breakdowns, how to use,
+why it works, and the FAQ. That material is what a brief needs in order to
+answer an objection or explain a mechanism. A Shopify theme renders all of it
+into the HTML the server returns, so it is read directly, through the same
+guarded fetcher everything else uses. No key, no third-party scraper, nothing
+to configure.
 
-Hard product facts never come from either reader. Price, concentrations and
-images come from the structured Shopify JSON, because a parsed number beats a
-number recovered from prose.
+There was a Firecrawl integration here and removing it fixed a bug rather than
+causing one. Enrichment used to be Firecrawl-only and returned "no page, no
+warning" whenever the call failed or no key was set, so a brief asking the model
+to answer an objection had one sentence of product description to work from and
+nothing said so.
+
+Now, if the page cannot be read, the run still works from the product JSON
+alone and the interface says so plainly. That distinction matters more than it
+sounds: a thin brief and a model ignoring its brief look identical from the
+outside.
+
+To check it from inside the deployment, which is the only place the answer
+counts:
+
+    railway run npm run scrape -- page https://beminimalist.co/products/<handle>
+
+---
 
 ## How a creative is composed
 
-`config/brand.ts` holds three layers, and the distinction between them is the
-whole reason generations stopped looking like generic skincare ads:
+Three layers, in `config/`, and the distinction between them is why generations
+stopped looking like generic skincare ads.
 
-- `BRAND_VOICE` — what may be **said**.
-- `BRAND_VISUAL` — what the creative may be **made of**: palette, typography,
-  photography, and a hard list of things never to depict. Placement-independent,
-  every rule true of a 1200×628 banner and a 1080×1920 story alike.
-- `CREATIVE_GRAMMAR` — how the brand actually **assembles** those parts, derived
-  from three banners the client is currently running. Four layout archetypes,
-  five props, six graphic devices with construction rules, two CTA treatments,
-  and a restraint list that caps a creative at two devices.
+**Voice** is what may be said: register, vocabulary, the things this brand
+never does.
+
+**Visual identity** is what the creative may be made of: palette, typography,
+photography, and a hard list of things never to depict. All of it true of any
+frame, from a 1200x628 banner to a 1080x1920 story.
+
+**Creative grammar** is how the brand actually assembles those parts, derived
+from three banners it is currently running. Four layout archetypes, five props,
+six graphic devices with construction rules, and a restraint list that caps a
+creative at two devices.
 
 The third layer exists because every constraint in the first two could be
-satisfied by a tasteful product shot on white that still looked nothing like the
-ads on the site. The live creatives are closer to a spec sheet than a
+satisfied by a tasteful product shot on white that still looked nothing like
+the ads on the site. The real ones are closer to a spec sheet than a
 photograph: a type stack, a cluster on white pedestals, hairline leader lines
-out to small-caps labels, thin-bordered callout boxes.
+out to small-caps labels.
 
-Wiring matters as much as content. The brief model does not describe a layout in
-prose — it **names** one, from the archetypes that can be built in the frame it
-was given, and `renderImagePrompt` expands that entry plus exactly the devices
-it uses into the image prompt. Archetypes declare which orientations they work
-in and carry a stacked rearrangement for tall frames, so a 9:16 story is no
-longer briefed as a left-right banner. `tests/grammar.test.ts` asserts the
-grammar reaches the model, because the first version of it was imported by
-nothing at all.
+Wiring matters as much as content. The brief model does not describe a layout
+in prose, it names one from the archetypes that can be built in the frame it
+was given, and the construction rules are expanded from that name into the
+image prompt.
 
-## Tests
+The angle works the same way. It is not a suggestion weighed against the
+objective. It decides what the creative argues, the objective decides how hard
+it asks for the sale, and the offer is demoted to a supporting line. Both
+models are told, so the picture and the words argue the same thing.
 
-```bash
-npm test             # unit + integration, fixture-backed, no network, no key
-npm run smoke        # whole pipeline offline against a stubbed transport
-npm run ui:smoke     # drives the real UI in a real browser
-npm run ui:contrast  # measures the contrast the browser actually painted
-```
+---
 
-`npm test` uses Node's built-in runner against TypeScript directly — no test
-framework and no transpiler. It never touches the network, so CI is
-deterministic and needs no API key.
+## Scoring
 
-`npm run ui:smoke` needs a server running against the offline stub:
+Upload any creative. Four layers run, cheapest and most certain first: file
+format and dimensions, then banned phrases over the text read out of the image,
+then a vision review of brand fit and composition, then a weighted score with
+hard gates that cannot be averaged away.
 
-```bash
-GEMINI_API_KEY=offline-smoke \
-APP_PASSWORD=NUDGE \
-NODE_OPTIONS="--import ./scripts/dev-stub-transport.ts" \
-npx next dev -p 3000 &
+Three inputs beyond the file, all optional, each sharpening the review rather
+than decorating it. A **product URL** lets product claims be verified against
+the live page; without one they come back marked unverified rather than
+silently passing. The **placement** it was made for lets size and aspect ratio
+be judged; without it they are not judged at all, rather than measured against
+a spec you never chose. The **objective** it was written to lets stopping power
+be scored against the job the creative actually had.
 
-BASE=http://localhost:3000 npm run ui:smoke
-BASE=http://localhost:3000 npm run ui:contrast
-```
+A creative that belongs to another brand does not get a low score, it gets
+zero. Its craft may be real, but it is not this brand's, and 62 out of 100
+would read as "nearly there" about something that can never run.
 
-It signs in first, so a broken gate fails the whole run rather than being
-mistaken for a broken app. It has caught real defects on every pass so far: a
-single result stretching to full container width and rendering a
-thousand-pixel-tall image; blocked concepts returned by the API and dropped by
-the UI; and a logo whose `onError` fallback never fired on the server-rendered
-login page, because the fetch failed before React hydrated and attached the
-handler.
+---
 
-`ui:contrast` is separate because it asks a different question. The palette
-comment in `globals.css` states a ratio for every token pairing, which is a claim
-about hex values — not about the page. This walks the rendered DOM across six
-views, resolves each element's real backdrop through transparent ancestors, and
-computes what a reader actually gets. Disabled controls are reported but not
-failed, since WCAG exempts them.
+## Sharing and history
 
-## Verifying the live providers
+The run id appears in the address bar the moment you click Read product, which
+is before anything has been paid for. Copy that URL and it opens the run: the
+product, the copy, the policy verdicts and the creatives.
 
-Everything above runs offline. To confirm the request shapes are actually
-accepted by Google and Firecrawl:
+History lists every run with its cost and outcome, and each row links to its
+own run.
 
-```bash
-railway run npm run models            # what the key can see
-railway run npm run verify            # free: key, text round-trip, vision, Firecrawl
-railway run npm run verify -- --image # adds one real generation (~$0.134)
-```
+Sharing is team-scoped. Every page is behind the password, so a link works for
+anyone who can sign in and for nobody else. That is deliberate, since these
+links carry product strategy and spend.
 
-A failing check names the single file to correct.
+Runs are stored in Postgres. Images are stored by their own content hash, so
+the same creative rendered for two placements is one row, and they are served
+from this app rather than a third-party URL, which makes an image exactly as
+private as the run it belongs to. Images are kept for recent runs; older runs
+keep their copy, prompts and verdicts, and say plainly that the pictures have
+been cleared.
 
-## Endpoints
+If Postgres is unreachable the app still runs, history falls back to memory,
+and the interface says the link will not open for anyone else.
 
-| Method | Path | Auth | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/api/health` | open | Railway probe. Always `200` while the app can render; signed-out callers get `{status, authenticated:false}` and nothing else. Postgres is reported, never fatal — no user-facing route queries it, and a `503` over an unused dependency would pull the whole UI out of rotation. |
-| `POST` | `/api/generate` | gated | Product URL → brief → policy gate → one image per selected placement. `422` for a non-product URL or a body that fails the schema, `503` when no Gemini key is available from either source. |
-| `POST` | `/api/score` | gated | Score any creative. `multipart/form-data` with an `image` file, or JSON with base64 `image`. `productUrl` is optional; without it product claims come back `verified: false` rather than silently passing. |
-| `GET` | `/api/runs` | gated | Recent generation and scoring runs, by run id. |
-| `POST` | `/api/resolve` | gated | Read a product page without generating anything. Free. |
-| `POST`/`DELETE` | `/api/keys` | gated | Set or clear the per-browser Gemini key override. Never returns the key — only a four-character mask. |
-| `POST` | `/api/auth/login` | open | Exchange the password for a session cookie. Rate limited per client and globally. |
-| `POST` | `/api/auth/logout` | open | Drops the session **and** the key override. |
+---
 
-## The gate
+## The password
 
-The whole app sits behind one password, because what is behind it spends a live
-API key per request. `APP_PASSWORD` sets it; unset, it falls back to `NUDGE`.
+The whole app sits behind one password, because everything behind it spends a
+live API key per request. Set `APP_PASSWORD`. Unset, it falls back to `NUDGE`,
+which is published in this repository and is therefore no protection at all.
 
-Enforcement is in `src/middleware.ts` rather than per route, so adding a route
-cannot accidentally add a hole — the default is closed and the exemptions are a
-four-line list. The password is never written to the cookie: the cookie carries
-an expiry and a nonce signed with a key derived from the password by PBKDF2, so
-rotating `APP_PASSWORD` invalidates every outstanding session. Every comparison
-of a secret is constant time.
+Enforcement is in middleware rather than per route, so adding a route cannot
+accidentally add a hole. The password is never written to the cookie: the
+cookie carries an expiry and a nonce signed with a key derived from the
+password, so rotating the password signs everyone out.
 
-`APP_PASSWORD` is listed in `.railway/railway.ts` as `preserve()`. It has to be:
-that env block is declarative, so a variable set in the dashboard but missing
-from the map is liable to be dropped by `railway config apply` — at which point
-the gate silently falls back to the default published in this repository.
+Anyone signed in can paste their own Gemini key at `/keys` to spend it instead
+of the deployment's, for their browser only. It is encrypted, never shown back,
+and goes away when they sign out.
 
-## Bring your own key, at `/keys`
+---
 
-Paste a Gemini key at `/keys` and this browser spends it instead of the
-deployment's. Useful for a demo, a client's quota, or an exhausted key.
+## Running it
 
-The value is sealed with AES-GCM — encrypted, not merely signed — under a
-subkey derived from `APP_PASSWORD`, and kept in an http-only cookie. It is never
-rendered back, not in HTML, not in a prop, not in the RSC stream: the page
-receives a four-character mask and a source label, and nothing that can be
-turned back into a credential. Signing out drops it with the session.
+    npm install
+    cp .env.example .env.local
+    npm run dev
 
-Both spending routes read the key through `geminiKeyForRequest()`; a test in
-`tests/runtime-key.test.ts` asserts that neither reads `config.GEMINI_API_KEY`
-directly, because for a while both did — the page said the override was in
-effect while every generation quietly spent the deployment's key.
+The only variable worth setting is `DATABASE_URL`. Without it the app still
+boots and tells you which features are degraded.
 
-## Deploying to Railway
+### Tests
 
-Platform config lives in `.railway/railway.ts`, **not** `railway.json`. Config as
-Code is deprecated, new services cannot opt into it, and existing files stop
-being read on 2026-12-01. IaC is applied through the CLI, not at deploy time:
+    npm test             unit and integration, no network, no key
+    npm run smoke        the whole pipeline offline against a stubbed transport
+    npm run ui:smoke     drives the real interface in a real browser
+    npm run ui:contrast  measures the contrast the browser actually painted
 
-```bash
-npm install -g @railway/cli
-railway login
-railway link                     # select the project + environment
-railway config plan              # read-only preview
-railway config apply             # applies after confirmation
-```
+`npm test` uses Node's built-in runner against TypeScript directly. No test
+framework, no transpiler, no network, so it needs no API key and never flakes.
 
-`railway config plan` is safe: it only reads Railway state and prints the diff.
+The browser suite signs in first, so a broken gate fails the run rather than
+looking like a broken app. It has caught real defects on every pass: a single
+result stretching to full container width and rendering a thousand-pixel-tall
+image, blocked concepts returned by the API and dropped by the interface, and a
+logo whose fallback never fired because the image failed before React hydrated.
 
-The config declares a managed Postgres and a `web` service, injects
-`DATABASE_URL` from the database into the service, and sets the health check to
-`/api/health`.
+`ui:contrast` asks a different question from a stylesheet review. It walks the
+rendered page across every view, resolves each element's real background
+through transparent ancestors, and computes what a reader actually gets.
 
-### Migrations
+### Checking the live providers
 
-The pre-deploy migration is written down in `.railway/railway.ts` and
-deliberately commented out:
+Everything above runs offline. To confirm the real thing works from inside the
+deployment:
 
-```
-node node_modules/prisma/build/index.js migrate deploy
-```
+    railway run npm run models              what the key can see
+    railway run npm run verify              free: models, text, page read
+    railway run npm run verify -- --image   adds one real generation, about $0.13
 
-`prisma migrate deploy` exits non-zero without a reachable `DATABASE_URL`, and a
-failing pre-deploy aborts the whole deployment — so a schema that nothing
-currently reads would be able to take the UI down. Restore it in the same change
-that introduces the first route which actually queries Postgres.
+---
 
-The full path is deliberate when it is restored: Next's standalone output prunes
-`node_modules` to what the app imports at runtime, and nothing imports the Prisma
-CLI, so the Dockerfile copies it in explicitly.
+## Deploying
 
-### Secrets
+Platform configuration lives in `.railway/railway.ts`, not `railway.json`.
+Preview it with `railway config plan` and commit it with `railway config apply`.
 
-`APP_PASSWORD`, `GEMINI_API_KEY` and `FIRECRAWL_API_KEY` are declared as
-`preserve()` — set each once in the Railway dashboard and IaC will never
-overwrite it or pull it into git.
+That file also carries the pre-deploy migration. It has to be applied at least
+once, or the run tables will not exist and history will quietly fall back to
+memory.
 
-`APP_PASSWORD` has to be in that map even though its value is not. The env block
-is declarative: a variable set in the dashboard but absent from the map is
-liable to be dropped by `railway config apply`, and a dropped `APP_PASSWORD`
-does not fail loudly — it silently reverts the gate to the default published in
-this repository.
+Secrets are declared as `preserve()`, which means you set them once in the
+Railway dashboard and infrastructure-as-code never overwrites them or pulls
+them into git. `APP_PASSWORD` in particular has to stay in that list. The
+environment block is declarative, so a variable set in the dashboard but absent
+from the map can be dropped on the next apply, and a dropped password does not
+fail loudly. It silently reverts the gate to the default published here.
 
-## CI
-
-`.github/workflows/ci.yml` runs lint, typecheck, `next build`, and a
-`docker build` of the exact image Railway builds.
-
-`.github/workflows/claude.yml` runs `anthropics/claude-code-action@v1` on
-`@claude` mentions in issues, PR comments and reviews. It needs a repository
-secret named `ANTHROPIC_API_KEY`.
+Continuous integration runs lint, typecheck, the test suite, a production build
+and a Docker build of the exact image Railway builds.

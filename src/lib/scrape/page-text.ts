@@ -3,20 +3,26 @@ import { safeFetch } from "../http/safe-fetch.ts";
 /**
  * The product page as readable text, with no third party and no API key.
  *
- * ── Why this replaces Firecrawl as the default ────────────────────────────
- * Firecrawl exists for pages that only assemble themselves in a browser. A
- * Shopify product page is not one of those: the theme renders the description,
- * the ingredient blocks, the how-to-use section and the FAQ into the HTML the
- * server returns, which is why `curl` on a PDP shows all of it. Paying an API,
- * holding a key and taking an outbound dependency to read text that arrives in
- * the first response is a cost with nothing on the other side of it.
+ * ── Why there is no hosted scraper here ───────────────────────────────────
+ * A hosted scraper earns its keep on pages that only assemble themselves in a
+ * browser. A Shopify product page is not one of those. The theme renders the
+ * description, the ingredient blocks, the how-to-use section and the FAQ into
+ * the HTML the server returns, which is why `curl` on a product page shows all
+ * of it, and why this app already reads the same origin for the product JSON
+ * without difficulty. Paying an API, holding a key and taking an outbound
+ * dependency to read text that arrives in the first response is a cost with
+ * nothing on the other side of it.
  *
- * So this is now the enrichment path, and Firecrawl is the optional upgrade for
- * a storefront that genuinely needs JavaScript. The practical difference is
- * that enrichment now works by default rather than being silently absent, which
- * is what made an "answer the biggest objection" brief impossible to satisfy:
- * the objections live in the FAQ and the ingredient copy, and without them the
- * model had one sentence of product description to reason from.
+ * This project did carry Firecrawl for a while, and removing it fixed a bug
+ * rather than causing one. Enrichment was Firecrawl-only and returned "no page,
+ * no warning" whenever the call failed or no key was set, so a brief asking the
+ * model to answer an objection had one sentence of product description to work
+ * from and nothing said so. The objections live in the FAQ and the ingredient
+ * copy. Now they are read directly, and a failure is reported on screen.
+ *
+ * If a storefront ever does need a browser, the shape to add is another reader
+ * behind readProductPage() below, not a key that silently changes what the
+ * default path does.
  *
  * ── What it does and does not do ──────────────────────────────────────────
  * It extracts text, not structure, and it is deliberately not an HTML parser.
@@ -37,7 +43,7 @@ export interface PageText {
   sourceUrl: string;
   fetchedAt: string;
   /** Which reader produced this, so the UI can say so rather than imply. */
-  source: "page" | "firecrawl";
+  source: "page";
 }
 
 /** Elements whose contents are never prose. Dropped whole, including tags. */
@@ -220,4 +226,49 @@ export async function fetchPageText(
     fetchedAt: new Date().toISOString(),
     source: "page",
   };
+}
+
+export interface EnrichResult {
+  page: PageText | null;
+  warning: string | null;
+}
+
+/**
+ * The product page, or a clear statement of why not.
+ *
+ * Enrichment must never fail a run: every hard product fact comes from the
+ * Shopify JSON, and this only adds substance for the copywriter and a wider
+ * source of truth for the scorer. But it must never fail SILENTLY either, which
+ * is the mistake this replaces. A thin brief and a model ignoring its brief
+ * look identical from the outside, and the difference is the first thing you
+ * need when a creative comes back wrong.
+ */
+export async function readProductPage(
+  url: string,
+  options: PageTextOptions,
+): Promise<EnrichResult> {
+  try {
+    const page = await fetchPageText(url, options);
+    // A page that yielded almost nothing is a page this reader could not read,
+    // whatever the HTTP status said. Enriching a brief with three words of
+    // navigation is worse than admitting there was nothing to add.
+    if (page.markdown.length >= 200) return { page, warning: null };
+    return {
+      page: null,
+      warning:
+        `The product page returned only ${page.markdown.length} characters of ` +
+        `readable text, so this brief was written from the structured product ` +
+        `data alone. Ingredient detail, usage and FAQ copy were not available.`,
+    };
+  } catch (error) {
+    return {
+      page: null,
+      warning:
+        `Could not read the product page (${
+          error instanceof Error ? error.message : String(error)
+        }). This brief was written from the structured product data alone, ` +
+        `which is thinner: ingredient detail, usage and FAQ copy were not ` +
+        `available to it.`,
+    };
+  }
 }

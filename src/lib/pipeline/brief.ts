@@ -46,9 +46,11 @@ export interface BriefInput {
   angleHint?: string;
   audience?: string;
   /**
-   * Full rendered page content from Firecrawl. Optional — its absence costs
-   * copy depth, not correctness, since every hard fact still comes from the
-   * structured snapshot.
+   * The product page as readable text, from src/lib/scrape/page-text.ts.
+   * Optional: its absence costs copy depth, not correctness, since every hard
+   * fact still comes from the structured snapshot. It is what an angle like
+   * "answer the biggest objection" is answered FROM, so a brief without it is
+   * measurably thinner and the UI says so.
    */
   pageMarkdown?: string | null;
   brandMark?: BrandMark;

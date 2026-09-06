@@ -22,6 +22,7 @@ import { parseArgs } from "node:util";
 import { ShopifyClient, type ProductSnapshot } from "../src/lib/scrape/shopify.ts";
 import { extractBrandAssets } from "../src/lib/scrape/brand-assets.ts";
 import { parseProductUrl } from "../src/lib/scrape/product-url.ts";
+import { fetchPageText } from "../src/lib/scrape/page-text.ts";
 import { FetchRejectedError } from "../src/lib/http/safe-fetch.ts";
 
 const DEFAULT_HOSTS = "beminimalist.co,global.beminimalist.co";
@@ -188,6 +189,75 @@ async function cmdBrand(
   return 0;
 }
 
+
+/**
+ * Read the product page as text, the way the brief does.
+ *
+ * This is the command that answers "do we still need Firecrawl?", and it has to
+ * be run where the app runs, not on a laptop:
+ *
+ *   railway run npm run scrape -- page https://beminimalist.co/products/<handle>
+ *
+ * A storefront that serves its content to a browser can still refuse a
+ * datacentre IP, and the only way to know is to ask from the datacentre. If
+ * this prints the FAQ and the ingredient copy, the built-in reader is enough
+ * and no third-party scraper is needed.
+ */
+async function cmdPage(url: string, json: boolean): Promise<number> {
+  const { hosts } = config();
+  const verdict = parseProductUrl(url, hosts);
+  if (!verdict.ok) {
+    console.error(`✗ ${verdict.message}`);
+    return 2;
+  }
+
+  let page;
+  try {
+    page = await fetchPageText(verdict.canonical, { allowedHosts: hosts });
+  } catch (error) {
+    console.error(
+      `✗ Could not read the page: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.error(
+      "\n  If this fails from inside the deployment but works locally, the" +
+        "\n  storefront is refusing the container's IP. That is the one case" +
+        "\n  where a hosted scraper earns its keep.",
+    );
+    return 1;
+  }
+
+  if (json) {
+    console.log(JSON.stringify(page, null, 2));
+    return 0;
+  }
+
+  console.log(`✓ ${page.sourceUrl}`);
+  console.log(`  Title:      ${page.title ?? "none"}`);
+  console.log(`  Characters: ${page.markdown.length}`);
+  console.log("");
+
+  // The three things a brief actually needs, checked by eye rather than
+  // asserted: a count alone does not tell you whether the useful part arrived.
+  const signals: Array<[string, RegExp]> = [
+    ["ingredient or actives copy", /ingredient|actives|%\s|concentration/i],
+    ["usage instructions", /how to use|apply|routine|nightly|morning/i],
+    ["questions or objections", /faq|frequently asked|will it|how long|can i/i],
+  ];
+  for (const [label, pattern] of signals) {
+    console.log(`  ${pattern.test(page.markdown) ? "found" : "MISSING"}  ${label}`);
+  }
+
+  console.log("\n  First 800 characters as the model will see them:\n");
+  console.log(
+    page.markdown
+      .slice(0, 800)
+      .split("\n")
+      .map((line) => `    ${line}`)
+      .join("\n"),
+  );
+  return 0;
+}
+
 function usage(): void {
   console.error(
     [
@@ -195,6 +265,7 @@ function usage(): void {
       "",
       "Commands:",
       "  product <url>        Fetch and normalise one product",
+      "  page    <url>        Read the product page as the brief reads it",
       "  catalog [origin]     Crawl every product via /products.json",
       "  brand   [origin]     Extract fonts, colour tokens and logo from theme CSS",
       "",
@@ -241,6 +312,12 @@ async function main(): Promise<number> {
         return 1;
       }
       return cmdProduct(arg, json);
+    case "page":
+      if (!arg) {
+        console.error("✗ page requires a URL");
+        return 1;
+      }
+      return cmdPage(arg, json);
     case "catalog":
       return cmdCatalog(arg, limit, pages, json);
     case "brand":

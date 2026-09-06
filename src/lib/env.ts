@@ -93,7 +93,6 @@ const schema = z.object({
    * in src/lib/scrape/brand-assets.ts proves insufficient. Product data never
    * needs it — Shopify publishes that as JSON.
    */
-  FIRECRAWL_API_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof schema>;

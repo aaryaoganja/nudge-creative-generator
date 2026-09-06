@@ -85,14 +85,13 @@ export async function GET() {
 
   // Surfaced so a misconfigured deployment is diagnosable from the probe alone,
   // rather than requiring a log dive. Booleans only — never the values.
-  let providers = { gemini: false, firecrawl: false };
+  let providers = { gemini: false };
   let configError: string | null = null;
   try {
     const config = env();
-    providers = {
-      gemini: Boolean(config.GEMINI_API_KEY),
-      firecrawl: Boolean(config.FIRECRAWL_API_KEY),
-    };
+    // One provider now. Page enrichment reads the storefront directly, so
+    // there is no second key whose absence could quietly change behaviour.
+    providers = { gemini: Boolean(config.GEMINI_API_KEY) };
   } catch (error) {
     configError = error instanceof Error ? error.message : String(error);
   }

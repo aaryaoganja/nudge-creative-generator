@@ -88,7 +88,6 @@ export default defineRailway((ctx) => {
       // repository, and the deployment is effectively open.
       APP_PASSWORD: preserve(),
       GEMINI_API_KEY: preserve(),
-      FIRECRAWL_API_KEY: preserve(),
     },
   });
 
