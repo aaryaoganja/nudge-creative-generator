@@ -15,23 +15,94 @@ datasource db {
   provider = "postgresql"
 }
 
-/// A single creative-generation request and its result.
-model Creative {
-  id        String         @id @default(cuid())
-  prompt    String
-  channel   String
-  status    CreativeStatus @default(PENDING)
-  body      String?
-  error     String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+/// One generation or one score, addressable by the id the UI puts in the URL.
+///
+/// The id is NOT a cuid: it is the gen_/scr_ prefixed value minted by
+/// src/lib/run.ts, because that id is what a user copies out of the address bar
+/// and pastes to a colleague. Two identifiers for one run, one in the URL and
+/// one in the table, is a lookup nobody needs.
+///
+/// `payload` holds the whole response the route returned, so a shared link
+/// re-renders exactly what the person who ran it saw. It is deliberately opaque
+/// to the database: the shape belongs to the pipeline, and a schema migration
+/// every time a finding grows a field would make the pipeline unchangeable. The
+/// columns beside it are the ones a history list has to sort and filter on, and
+/// those are read WITHOUT selecting payload, which is why they are not in it.
+///
+/// Images are not here. See RunAsset.
+model Run {
+  id         String    @id
+  kind       RunKind
+  status     RunStatus @default(RUNNING)
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
 
-  @@index([channel, createdAt])
-  @@map("creatives")
+  /// One line for a history row. Never null once the run finishes.
+  summary String @default("")
+  /// The product title, or the uploaded filename.
+  subject String?
+  /// The product page this run is about, when there is one. Indexed so
+  /// "everything we have made for this product" is one query.
+  productUrl String?
+
+  /// Estimated spend in USD. Decimal, not Float: a column of money that is
+  /// summed should not carry binary rounding, however small the figures.
+  costUsd Decimal @default(0) @db.Decimal(12, 6)
+
+  /// What the user asked for. Small, and useful in a list.
+  inputs Json @default("{}")
+  /// The full response. Large, and never selected by the history query.
+  payload Json?
+  /// Set when the run failed, so a failed run still has an identity.
+  error String?
+
+  /// Content hashes of every image this run needs, so pruning can find them
+  /// without parsing payload. Assets are shared by hash across runs.
+  assetShas String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startedAt(sort: Desc)])
+  @@index([kind, startedAt(sort: Desc)])
+  @@index([productUrl, startedAt(sort: Desc)])
+  @@map("runs")
 }
 
-enum CreativeStatus {
-  PENDING
-  READY
+enum RunKind {
+  GENERATION
+  SCORING
+}
+
+enum RunStatus {
+  RUNNING
+  OK
+  BLOCKED
   FAILED
+}
+
+/// Image bytes, addressed by their own SHA-256.
+///
+/// Object storage is the right destination for these and docs/ARCHITECTURE.md
+/// says so. This is the compromise that file also sanctions: bytes in Postgres
+/// BEHIND a Storage interface (src/lib/storage.ts), so swapping in a bucket is
+/// one implementation rather than a migration of every caller. Bytea without
+/// that interface is the version to refuse.
+///
+/// Content addressing is not decoration. The same creative regenerated for two
+/// placements, or a run opened by five people, stores one row; and the id is
+/// self-verifying, so a URL cannot be made to serve bytes it does not name.
+model RunAsset {
+  /// Lowercase hex SHA-256 of `data`.
+  sha256   String @id
+  mimeType String
+  width    Int?
+  height   Int?
+  byteSize Int
+  data     Bytes
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("run_assets")
 }

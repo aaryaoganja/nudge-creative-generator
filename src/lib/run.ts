@@ -1,86 +1,379 @@
 import { randomUUID } from "node:crypto";
-import { hasDatabase } from "@/lib/env";
+import { getPrisma } from "./db.ts";
+import { hasDatabase } from "./env.ts";
+import { storage } from "./storage.ts";
 
 /**
- * Run identity and history.
+ * Run identity, history, and the record behind a shareable link.
  *
- * Every generation and every score gets an id, returned in the response and
- * shown in the UI, so a creative can be traced back to the exact inputs,
- * prompt, models and cost that produced it. Without one, "why did this ad say
- * that?" is unanswerable a week later.
+ * Every resolve, generation and score gets an id. That id goes into the browser
+ * address bar the moment it exists, so the URL a person copies is the URL that
+ * re-renders what they were looking at. Two things follow from that, and they
+ * are the whole design:
+ *
+ *  1. The id in the URL is the primary key. No second identifier, no lookup
+ *     table, no cuid alongside the gen_/scr_ value on screen.
+ *  2. A record has to hold enough to REDRAW the page, not merely to describe
+ *     it. The previous version stored a one-line summary and a cost, which is a
+ *     diagnostic aid; a link built on that would open an empty page.
  *
  * ── Durability, stated plainly ────────────────────────────────────────────
- * History currently lives in memory, scoped to the running container. It
- * survives navigation and page reloads; it does NOT survive a redeploy, and on
- * more than one replica each container keeps its own. That is a real limit, not
- * a detail — `durable: false` is reported on every response so the UI can say
- * so rather than implying a permanence that is not there.
+ * With Postgres reachable, runs are rows and a link works from any replica,
+ * after any redeploy, for anyone who can sign in. Without Postgres the app
+ * still runs and history falls back to a process-local array that dies with the
+ * container. `durable` reports which of the two actually served the request,
+ * not whether a connection string happens to be set. It used to report the
+ * latter, which meant it said `true` on every Railway deploy while the storage
+ * was still an array in memory.
  *
- * Making it durable is a Postgres table and this module's two functions, which
- * is why the interface is already shaped for it. See docs/PLAN.md §6.
+ * Sharing is team-scoped by design. Every route here is behind the password
+ * gate in src/middleware.ts, so "shareable" means shareable with people who can
+ * sign in. That is the right default for a tool whose links carry product
+ * strategy and spend.
  */
 
 export type RunKind = "generation" | "scoring";
+export type RunStatus = "running" | "ok" | "blocked" | "failed";
 
 export interface RunRecord {
   id: string;
   kind: RunKind;
+  status: RunStatus;
   startedAt: string;
-  /** Short, human-readable label for a history list. */
+  finishedAt: string | null;
+  /** One line for a history row. */
   summary: string;
-  /** Whatever identifies the subject: a product URL, an uploaded filename. */
+  /** The product title, or the uploaded filename. */
   subject: string | null;
+  productUrl: string | null;
   costUsd: number;
-  outcome: string;
-  detail: Record<string, unknown>;
+  /** What the user asked for. Small enough to show in a list. */
+  inputs: Record<string, unknown>;
+  /** The full response. Absent from list queries, present on a detail read. */
+  payload?: Record<string, unknown> | null;
+  error?: string | null;
 }
 
 /**
- * Prefixed so an id is self-describing in a log line or a support message:
- * gen_… came from the generator, scr_… from the scorer.
+ * Prefixed so an id is self-describing in a log line, a support message or a
+ * pasted URL: gen_ came from the generator, scr_ from the scorer.
+ *
+ * Twenty hex characters is 80 bits. That matters more than it used to: the id
+ * is now a capability in a URL, and it should not be guessable.
  */
 export function newRunId(kind: RunKind): string {
   const prefix = kind === "generation" ? "gen" : "scr";
   return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
-const MAX_RUNS = 100;
-const globalForRuns = globalThis as unknown as { runs: RunRecord[] | undefined };
-
-function store(): RunRecord[] {
-  globalForRuns.runs ??= [];
-  return globalForRuns.runs;
+/** True only for a string this module could have minted. */
+export function isRunId(value: string): boolean {
+  return /^(gen|scr)_[0-9a-f]{20}$/.test(value);
 }
 
-export function recordRun(record: RunRecord): void {
-  const runs = store();
+export function kindOfRunId(value: string): RunKind | null {
+  if (!isRunId(value)) return null;
+  return value.startsWith("gen_") ? "generation" : "scoring";
+}
+
+/**
+ * How many runs keep their images.
+ *
+ * The rows are small and kept; the bytes are not. A 2K render is 1 to 3 MB and
+ * a run can hold several, so an unbounded asset table is the one part of this
+ * that would grow without limit on a small Postgres volume. Older runs keep
+ * their copy, prompts, policy verdicts and cost, and say plainly that the
+ * pictures have been cleared.
+ */
+const RUNS_KEEPING_ASSETS = 60;
+
+/** Memory fallback bound. Same reasoning as before: an aid, not a store. */
+const MAX_MEMORY_RUNS = 100;
+
+const globalForRuns = globalThis as unknown as {
+  memoryRuns: RunRecord[] | undefined;
+};
+
+function memory(): RunRecord[] {
+  globalForRuns.memoryRuns ??= [];
+  return globalForRuns.memoryRuns;
+}
+
+const KIND_TO_DB = { generation: "GENERATION", scoring: "SCORING" } as const;
+const KIND_FROM_DB: Record<string, RunKind> = {
+  GENERATION: "generation",
+  SCORING: "scoring",
+};
+const STATUS_TO_DB = {
+  running: "RUNNING",
+  ok: "OK",
+  blocked: "BLOCKED",
+  failed: "FAILED",
+} as const;
+const STATUS_FROM_DB: Record<string, RunStatus> = {
+  RUNNING: "running",
+  OK: "ok",
+  BLOCKED: "blocked",
+  FAILED: "failed",
+};
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- the row shape is Prisma's,
+   and naming it here would couple this module to generated types that change
+   whenever the schema does. Every field read below is checked. */
+function fromRow(row: any): RunRecord {
+  return {
+    id: row.id,
+    kind: KIND_FROM_DB[row.kind] ?? "generation",
+    status: STATUS_FROM_DB[row.status] ?? "ok",
+    startedAt: new Date(row.startedAt).toISOString(),
+    finishedAt: row.finishedAt ? new Date(row.finishedAt).toISOString() : null,
+    summary: row.summary ?? "",
+    subject: row.subject ?? null,
+    productUrl: row.productUrl ?? null,
+    costUsd: row.costUsd === null || row.costUsd === undefined ? 0 : Number(row.costUsd),
+    inputs: (row.inputs ?? {}) as Record<string, unknown>,
+    ...(row.payload !== undefined ? { payload: row.payload } : {}),
+    error: row.error ?? null,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export interface StartRunInput {
+  id: string;
+  kind: RunKind;
+  subject?: string | null;
+  productUrl?: string | null;
+  inputs?: Record<string, unknown>;
+}
+
+/**
+ * Open a run before the work starts.
+ *
+ * Called the moment a request is accepted, not when it succeeds. A run that
+ * failed is exactly the one somebody needs a link to, and the previous code
+ * minted an id for it and then recorded nothing.
+ */
+export async function startRun(input: StartRunInput): Promise<void> {
+  const record: RunRecord = {
+    id: input.id,
+    kind: input.kind,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    summary: "",
+    subject: input.subject ?? null,
+    productUrl: input.productUrl ?? null,
+    costUsd: 0,
+    inputs: input.inputs ?? {},
+  };
+
+  if (!hasDatabase()) {
+    remember(record);
+    return;
+  }
+
+  try {
+    await (await getPrisma()).run.create({
+      data: {
+        id: record.id,
+        kind: KIND_TO_DB[record.kind],
+        status: "RUNNING",
+        subject: record.subject,
+        productUrl: record.productUrl,
+        inputs: record.inputs as never,
+      },
+    });
+  } catch (error) {
+    warnOnce("startRun", error);
+    remember(record);
+  }
+}
+
+export interface FinishRunInput {
+  id: string;
+  status: RunStatus;
+  summary: string;
+  subject?: string | null;
+  productUrl?: string | null;
+  costUsd?: number;
+  inputs?: Record<string, unknown>;
+  payload?: Record<string, unknown> | null;
+  assetShas?: string[];
+  error?: string | null;
+}
+
+/** Close a run with everything needed to redraw it. */
+export async function finishRun(input: FinishRunInput): Promise<void> {
+  if (!hasDatabase()) {
+    const existing = memory().find((run) => run.id === input.id);
+    const record: RunRecord = {
+      id: input.id,
+      kind: kindOfRunId(input.id) ?? "generation",
+      status: input.status,
+      startedAt: existing?.startedAt ?? new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      summary: input.summary,
+      subject: input.subject ?? existing?.subject ?? null,
+      productUrl: input.productUrl ?? existing?.productUrl ?? null,
+      costUsd: input.costUsd ?? 0,
+      inputs: input.inputs ?? existing?.inputs ?? {},
+      payload: input.payload ?? null,
+      error: input.error ?? null,
+    };
+    remember(record);
+    return;
+  }
+
+  try {
+    const data = {
+      status: STATUS_TO_DB[input.status],
+      finishedAt: new Date(),
+      summary: input.summary,
+      ...(input.subject !== undefined ? { subject: input.subject } : {}),
+      ...(input.productUrl !== undefined ? { productUrl: input.productUrl } : {}),
+      ...(input.costUsd !== undefined ? { costUsd: input.costUsd } : {}),
+      ...(input.inputs !== undefined ? { inputs: input.inputs as never } : {}),
+      ...(input.payload !== undefined ? { payload: input.payload as never } : {}),
+      ...(input.assetShas !== undefined ? { assetShas: input.assetShas } : {}),
+      ...(input.error !== undefined ? { error: input.error } : {}),
+    };
+
+    // upsert, not update: startRun may have fallen back to memory while the
+    // database was briefly unreachable, and a finish that 404s would lose the
+    // whole run rather than the opening row.
+    await (await getPrisma()).run.upsert({
+      where: { id: input.id },
+      update: data,
+      create: {
+        id: input.id,
+        kind: KIND_TO_DB[kindOfRunId(input.id) ?? "generation"],
+        ...data,
+      },
+    });
+
+    await pruneAssets();
+  } catch (error) {
+    warnOnce("finishRun", error);
+  }
+}
+
+function remember(record: RunRecord): void {
+  const runs = memory();
+  const at = runs.findIndex((run) => run.id === record.id);
+  if (at >= 0) runs.splice(at, 1);
   runs.unshift(record);
-  // Bounded: this is a diagnostic aid, not a data store, and an unbounded array
-  // in a long-lived container is a memory leak with extra steps.
-  if (runs.length > MAX_RUNS) runs.length = MAX_RUNS;
+  if (runs.length > MAX_MEMORY_RUNS) runs.length = MAX_MEMORY_RUNS;
+}
+
+/**
+ * Drop image bytes belonging to runs outside the retention window.
+ *
+ * Runs are cheap and kept forever; pictures are not. Best effort on purpose:
+ * a failed prune must never fail the generation that triggered it.
+ */
+async function pruneAssets(): Promise<void> {
+  try {
+    const recent = await (await getPrisma()).run.findMany({
+      orderBy: { startedAt: "desc" },
+      take: RUNS_KEEPING_ASSETS,
+      select: { assetShas: true },
+    });
+    const keep = [...new Set(recent.flatMap((run) => run.assetShas))];
+    await storage().prune(keep);
+  } catch (error) {
+    warnOnce("pruneAssets", error);
+  }
 }
 
 export interface RunHistory {
   runs: RunRecord[];
+  /** True only when the rows came from Postgres. */
   durable: boolean;
-  /** Says exactly what the current storage does and does not guarantee. */
   note: string;
 }
 
-export function listRuns(kind?: RunKind, limit = 50): RunHistory {
-  const runs = store()
-    .filter((run) => (kind ? run.kind === kind : true))
-    .slice(0, limit);
+export async function listRuns(kind?: RunKind, limit = 50): Promise<RunHistory> {
+  if (hasDatabase()) {
+    try {
+      const rows = await (await getPrisma()).run.findMany({
+        where: kind ? { kind: KIND_TO_DB[kind] } : undefined,
+        orderBy: { startedAt: "desc" },
+        take: limit,
+        // payload is deliberately absent. It is the large column, and a history
+        // list that selected it would pull the whole result set into memory.
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          startedAt: true,
+          finishedAt: true,
+          summary: true,
+          subject: true,
+          productUrl: true,
+          costUsd: true,
+          inputs: true,
+          error: true,
+        },
+      });
+      return {
+        runs: rows.map(fromRow),
+        durable: true,
+        note: "History is stored in Postgres. Links work from any replica and survive a redeploy.",
+      };
+    } catch (error) {
+      warnOnce("listRuns", error);
+    }
+  }
 
   return {
-    runs,
-    durable: hasDatabase(),
-    note: hasDatabase()
-      ? "History is kept in memory for this container. Connect the Postgres schema to persist it across deploys."
-      : "History is kept in memory for this container only. It is lost on redeploy, and each replica keeps its own. Provision Postgres for durable history.",
+    runs: memory()
+      .filter((run) => (kind ? run.kind === kind : true))
+      .slice(0, limit)
+      // Strip payloads here too, so the memory path and the Postgres path
+      // return the same shape and the UI cannot come to depend on one of them.
+      .map((run) => {
+        const listed = { ...run };
+        delete listed.payload;
+        return listed;
+      }),
+    durable: false,
+    note: "No database is reachable, so history is being kept in this container's memory. It is lost on redeploy, each replica keeps its own, and links will not open for anyone else.",
   };
 }
 
-export function getRun(id: string): RunRecord | null {
-  return store().find((run) => run.id === id) ?? null;
+export interface RunLookup {
+  run: RunRecord | null;
+  durable: boolean;
+}
+
+export async function getRun(id: string): Promise<RunLookup> {
+  if (!isRunId(id)) return { run: null, durable: hasDatabase() };
+
+  if (hasDatabase()) {
+    try {
+      const row = await (await getPrisma()).run.findUnique({ where: { id } });
+      if (row) return { run: fromRow(row), durable: true };
+      return { run: null, durable: true };
+    } catch (error) {
+      warnOnce("getRun", error);
+    }
+  }
+
+  return { run: memory().find((run) => run.id === id) ?? null, durable: false };
+}
+
+const warned = new Set<string>();
+
+function warnOnce(operation: string, error: unknown): void {
+  if (warned.has(operation)) return;
+  warned.add(operation);
+  console.warn(
+    `[run] ${operation} failed, falling back to in-memory history:`,
+    error instanceof Error ? error.message : error,
+  );
+}
+
+/** Test seam. */
+export function resetRunWarnings(): void {
+  warned.clear();
 }

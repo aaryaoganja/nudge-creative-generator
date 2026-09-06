@@ -1,14 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Select } from "./select";
+import { placementsSorted } from "../../config/placements";
+import { OBJECTIVES } from "./objectives";
 
 /**
- * Ad quality scorer — accepts any creative, ours or not.
+ * Ad quality scorer. Accepts any creative, ours or not.
  *
- * The product URL is optional and its absence is reported, not hidden. When it
- * is missing, product-specific findings come back marked unverified rather than
- * silently passing, because "I could not check this" and "this is fine" are
- * different answers.
+ * Three inputs beyond the file, all optional, and all of them change the
+ * review rather than decorating it:
+ *
+ *  - the product URL, without which product claims come back marked unverified
+ *    rather than silently passing, because "I could not check this" and "this
+ *    is fine" are different answers;
+ *  - the placement it was made for, which the panel used to hardcode as
+ *    meta_feed_4x5, so a perfectly good 1080x1080 square was measured against a
+ *    4:5 spec nobody had chosen and came back blocked for a craft failure it
+ *    had not committed;
+ *  - the objective it was written to, so stopping power is judged against the
+ *    job the creative actually had.
  */
 
 interface Finding {
@@ -20,6 +31,7 @@ interface Finding {
 }
 
 interface ScoreResponse {
+  runId?: string;
   overall: number;
   verdict: "pass" | "fix_required" | "blocked";
   dimensionScores: Record<string, number>;
@@ -30,9 +42,11 @@ interface ScoreResponse {
   extractedText: string[];
   productVerified: boolean;
   productUrlWarning: string | null;
-  runId?: string;
   note: string | null;
   product: { title: string } | null;
+  placement: { label: string; width: number; height: number } | null;
+  objective: string | null;
+  image?: { url: string | null } | null;
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -43,19 +57,78 @@ const DIMENSION_LABELS: Record<string, string> = {
   stopping_power: "Stopping power",
 };
 
-export function ScorePanel() {
+export interface ScorePanelProps {
+  runId: string | null;
+  onRunId: (id: string) => void;
+}
+
+/** "Not stated" is a real answer here, and the default one. */
+const ANY_PLACEMENT = "any";
+
+export function ScorePanel({ runId, onRunId }: ScorePanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [productUrl, setProductUrl] = useState("");
+  const [placementId, setPlacementId] = useState(ANY_PLACEMENT);
+  const [objective, setObjective] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [score, setScore] = useState<ScoreResponse | null>(null);
+  // Initialised from the prop rather than raised inside the effect: a
+  // synchronous setState in an effect body cascades an extra render, and the
+  // answer is already known at first render.
+  const [loadingRun, setLoadingRun] = useState(Boolean(runId));
+
+  const placements = placementsSorted();
+
+  /** Open a score somebody sent you. */
+  useEffect(() => {
+    if (!runId) return;
+    let live = true;
+
+    fetch(`/api/runs?id=${encodeURIComponent(runId)}`)
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "Could not open that run.");
+        return body.run as {
+          inputs: Record<string, unknown>;
+          payload: Record<string, unknown> | null;
+        };
+      })
+      .then((run) => {
+        if (!live) return;
+        setError(null);
+        if (!run?.payload) return;
+        const inputs = (run.inputs ?? {}) as Record<string, never>;
+        setScore(run.payload as unknown as ScoreResponse);
+        setPlacementId(
+          typeof inputs.placementId === "string" ? inputs.placementId : ANY_PLACEMENT,
+        );
+        setObjective(typeof inputs.objective === "string" ? inputs.objective : "");
+        setProductUrl(typeof inputs.productUrl === "string" ? inputs.productUrl : "");
+        // The stored image, so a shared score shows the creative it is about.
+        const stored = (run.payload as { image?: { url?: string | null } }).image;
+        if (stored?.url) setPreview(stored.url);
+      })
+      .catch((cause) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (live) setLoadingRun(false);
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [runId]);
 
   function pick(selected: File | null) {
     setFile(selected);
     setScore(null);
     setError(null);
-    if (preview) URL.revokeObjectURL(preview);
+    // Only object URLs we created need revoking; a stored asset URL is an
+    // ordinary path and revoking it would be a no-op at best.
+    if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
     setPreview(selected ? URL.createObjectURL(selected) : null);
   }
 
@@ -68,13 +141,17 @@ export function ScorePanel() {
     try {
       const form = new FormData();
       form.append("image", file);
-      form.append("placementId", "meta_feed_4x5");
+      // Only when actually chosen. Sending a placement the user did not pick is
+      // how a square creative ends up judged against a 4:5 spec.
+      if (placementId !== ANY_PLACEMENT) form.append("placementId", placementId);
+      if (objective) form.append("objective", objective);
       if (productUrl.trim()) form.append("productUrl", productUrl.trim());
 
       const response = await fetch("/api/score", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Scoring failed");
       setScore(data);
+      if (data.runId) onRunId(data.runId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -89,11 +166,24 @@ export function ScorePanel() {
     <>
       {error && <div className="error">{error}</div>}
 
-      <form className="card" onSubmit={submit}>
-        <h2>Score any creative</h2>
+      {loadingRun && (
+        <div className="notice">
+          <span className="spin" />
+          Opening {runId}
+        </div>
+      )}
 
+      <div className="masthead">
+        <h1>Score a creative</h1>
+        <p className="sub">
+          Upload any ad, ours or anyone else&rsquo;s. Everything below the file
+          is optional and each one sharpens the review.
+        </p>
+      </div>
+
+      <form className="card" onSubmit={submit}>
         <div className="field">
-          <label htmlFor="file">Creative — PNG or JPEG</label>
+          <label htmlFor="file">Creative, PNG or JPEG</label>
           <input
             id="file"
             type="file"
@@ -104,14 +194,45 @@ export function ScorePanel() {
 
         <div className="field">
           <label htmlFor="purl">
-            Product URL — optional, but without it product claims cannot be verified
+            Product URL, optional. Without it, product claims cannot be verified.
           </label>
           <input
             id="purl"
             type="url"
-            placeholder="https://beminimalist.co/products/…"
+            placeholder="https://beminimalist.co/products/..."
             value={productUrl}
             onChange={(e) => setProductUrl(e.target.value)}
+          />
+        </div>
+
+        <div className="row">
+          <Select
+            id="score-placement"
+            label="Made for"
+            value={placementId}
+            onChange={setPlacementId}
+            options={[
+              {
+                value: ANY_PLACEMENT,
+                label: "Not stated",
+                hint: "no size or ratio check",
+              },
+              ...placements.map((placement) => ({
+                value: placement.id,
+                label: placement.label,
+                hint: `${placement.width}x${placement.height}`,
+              })),
+            ]}
+          />
+          <Select
+            id="score-objective"
+            label="Written for"
+            value={objective}
+            onChange={setObjective}
+            options={[
+              { value: "", label: "Not stated", hint: "judged generally" },
+              ...OBJECTIVES,
+            ]}
           />
         </div>
 
@@ -133,9 +254,11 @@ export function ScorePanel() {
         <div className="actions">
           <button className="primary" type="submit" disabled={!file || busy}>
             {busy && <span className="spin" />}
-            {busy ? "Reviewing…" : "Score creative"}
+            {busy ? "Reviewing" : "Score creative"}
           </button>
-          <span className="cost">≈ $0.006 · vision review</span>
+          <span className="cost">
+            {loadingRun ? "Opening a saved run" : "About $0.006, vision review"}
+          </span>
         </div>
       </form>
 
@@ -151,7 +274,9 @@ export function ScorePanel() {
                 <span className={`badge ${verdictClass}`}>
                   {score.verdict.replace("_", " ")}
                 </span>
-                {score.runId && <span className="runid">{score.runId}</span>}
+                {(score.runId ?? runId) && (
+              <span className="runid">{score.runId ?? runId}</span>
+            )}
               </div>
               <div style={{ flex: 1, minWidth: "16rem" }}>
                 {Object.entries(score.dimensionScores).map(([key, value]) => (
@@ -167,6 +292,16 @@ export function ScorePanel() {
             </div>
 
             <p style={{ marginBottom: 0, marginTop: "1rem" }}>{score.summary}</p>
+
+            {/* What it was judged against, so the spec is never an invisible
+                assumption. A blocked verdict that came from a ratio check is
+                only fair if the ratio was one the uploader chose. */}
+            <p className="sub" style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              {score.placement
+                ? `Judged as ${score.placement.label}, ${score.placement.width}x${score.placement.height}.`
+                : "No placement stated, so size and aspect ratio were not judged."}
+              {score.objective ? ` Written for ${score.objective}.` : ""}
+            </p>
 
             {!score.productVerified && (
               <div className="notice" style={{ marginTop: "1rem", marginBottom: 0 }}>
@@ -208,7 +343,7 @@ export function ScorePanel() {
           )}
 
           <section className="card">
-            <h2>Findings — most severe first</h2>
+            <h2>Findings, most severe first</h2>
             {score.findings.length === 0 && <p className="sub">Nothing flagged.</p>}
             {score.findings.map((finding, i) => (
               <div className={`finding ${finding.severity}`} key={i}>
@@ -220,7 +355,7 @@ export function ScorePanel() {
                   </>
                 )}
                 <div>{finding.observation}</div>
-                <span className="action">→ {finding.action}</span>
+                <span className="action">{finding.action}</span>
               </div>
             ))}
           </section>

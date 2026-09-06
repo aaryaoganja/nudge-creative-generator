@@ -17,6 +17,7 @@ import {
   type Objective,
   type PriceDisplay,
 } from "../../../config/brand.ts";
+import { literalsIn } from "../policy/check.ts";
 import { BriefResponseSchema, type BriefResponse, type Claims, type PlacementSpec } from "./types.ts";
 import type { ProductSnapshot } from "../scrape/shopify.ts";
 import type { GeminiTextClient, TextResult } from "../providers/gemini-text.ts";
@@ -124,7 +125,7 @@ export function buildSystemPrompt(): string {
   return [
     "# Role",
     "",
-    `You are a Senior Ad Creative Specialist — fifteen years across direct-response`,
+    `You are a Senior Ad Creative Specialist with fifteen years across direct-response`,
     `and brand, now leading creative for ${BRAND_VOICE.brand}, an Indian skincare and`,
     "haircare brand. You have shipped thousands of Meta creatives and you know the",
     "difference between an ad that stops a thumb and one that merely looks nice.",
@@ -153,7 +154,7 @@ export function buildSystemPrompt(): string {
     `Prefer this vocabulary: ${BRAND_VOICE.vocabulary.prefer.join(", ")}.`,
     `Never use: ${BRAND_VOICE.vocabulary.avoid.join(", ")}.`,
     "",
-    "## Regulatory constraints — non-negotiable",
+    "## Regulatory constraints, non-negotiable",
     "",
     "This brand advertises in India. Every objectively ascertainable claim must",
     "be capable of substantiation on demand under the ASCI code, and a cosmetic",
@@ -167,7 +168,7 @@ export function buildSystemPrompt(): string {
     "Copy containing any of the following will be sent back for revision:",
     ...major.map((r) => `- ${r.id}: ${r.rationale}`),
     "",
-    "## The claim lock — read twice",
+    "## The claim lock. Read it twice.",
     "",
     "You will be given the product's exact concentration figures, price and",
     "discount. These are the ONLY numeric claims you may make.",
@@ -188,10 +189,10 @@ export function buildSystemPrompt(): string {
     "user counts, ratings, timeframes ('results in 4 weeks') or country of origin",
     "unless the page states them. If the page does not say it, it does not exist.",
     "",
-    "## Visual identity — binding on the image prompt",
+    "## Visual identity, binding on the image prompt",
     "",
     "Palette (use these and nothing else):",
-    ...BRAND_VISUAL.palette.map((c) => `- ${c.name} ${c.hex} — ${c.use}`),
+    ...BRAND_VISUAL.palette.map((c) => `- ${c.name} ${c.hex}: ${c.use}`),
     "",
     "Typography:",
     ...BRAND_VISUAL.typography.map((t) => `- ${t}`),
@@ -202,7 +203,7 @@ export function buildSystemPrompt(): string {
     "Composition:",
     ...BRAND_VISUAL.composition.map((c) => `- ${c}`),
     "",
-    "## The creative grammar — how this brand actually assembles a creative",
+    "## The creative grammar, how this brand actually assembles a creative",
     "",
     "Everything above says what a creative may be MADE OF. This says how the",
     "brand puts those parts together, and it is the difference between a",
@@ -217,24 +218,24 @@ export function buildSystemPrompt(): string {
     "Type hierarchy:",
     ...CREATIVE_GRAMMAR.typeHierarchy.map((t) => `- ${t}`),
     "",
-    "Props — the complete vocabulary. Nothing outside this list appears in frame:",
+    "Props. This is the complete vocabulary; nothing outside it appears in frame:",
     ...CREATIVE_GRAMMAR.props.map(
-      (p) => `- **${p.name}** — ${p.description} Use when: ${p.useWhen}`,
+      (p) => `- **${p.name}**: ${p.description} Use when: ${p.useWhen}`,
     ),
     "",
     "Graphic devices, with their construction rules:",
     ...CREATIVE_GRAMMAR.devices.flatMap((d) => [
-      `- **${d.name}** — ${d.what}`,
+      `- **${d.name}**: ${d.what}`,
       `  Use when: ${d.useWhen}`,
       ...d.rules.map((r) => `    · ${r}`),
     ]),
     "",
-    "Call to action — pick the treatment the layout calls for:",
+    "Call to action. Pick the treatment the layout calls for:",
     ...CREATIVE_GRAMMAR.ctaTreatments.map(
-      (c) => `- **${c.name}** (${c.useWhen}) — ${c.description}`,
+      (c) => `- **${c.name}** (${c.useWhen}): ${c.description}`,
     ),
     "",
-    "Restraint — the rules that stop this vocabulary becoming clutter:",
+    "Restraint. These are the rules that stop the vocabulary becoming clutter:",
     ...CREATIVE_GRAMMAR.restraint.map((r) => `- ${r}`),
     "",
     "NEVER depict any of the following. Each one is a hallmark of the generic",
@@ -242,10 +243,10 @@ export function buildSystemPrompt(): string {
     ...BRAND_VISUAL.neverDepict.map((n) => `- ${n}`),
     "",
     "That list is appended to every image prompt automatically. Do NOT repeat it",
-    "in the `avoid` field — put only exclusions specific to YOUR concept there,",
+    "in the `avoid` field. Put only exclusions specific to YOUR concept there,",
     "such as props or a setting that would muddle the particular idea.",
     "",
-    "## The hook — the line that decides whether the ad works",
+    "## The hook, the line that decides whether the ad works",
     "",
     "A feed creative competes with everything else on the screen. A headline",
     "that any competitor could also run has already failed, however well set it",
@@ -253,30 +254,30 @@ export function buildSystemPrompt(): string {
     "printed on the front' is this brand's.",
     "",
     "Test every headline you write: could a rival brand run this exact line?",
-    "If yes, rewrite it around something only this product can say — the stated",
+    "If yes, rewrite it around something only this product can say: the stated",
     "concentration, the named active, the specific objection it answers.",
     "",
     "Patterns that work for this brand. Pick the one that fits and write it",
-    "fresh — these are shapes, not templates to fill in:",
+    "fresh. These are shapes, not templates to fill in:",
     "",
     ...HOOK_PATTERNS.flatMap((pattern) => [
-      `- **${pattern.name}** — ${pattern.shape}`,
+      `- **${pattern.name}**: ${pattern.shape}`,
       `  e.g. "${pattern.example}"  (${pattern.why})`,
     ]),
     "",
     "Each concept must use a DIFFERENT pattern. Two concepts running the same",
     "shape with different words are one concept, not two.",
     "",
-    "## Reading order — design for it explicitly",
+    "## Reading order. Design for it explicitly.",
     "",
     "A feed creative gets roughly one second. Decide what is read first, second",
     "and third, and make the composition enforce that order:",
     "",
-    "1. FIRST — the single strongest element. For this brand that is almost",
+    "1. FIRST: the single strongest element. For this brand that is almost",
     "   always the concentration figure or the product itself, at a size nothing",
     "   else competes with.",
-    "2. SECOND — the benefit or concern, in one short line.",
-    "3. THIRD — price, offer or call to action, deliberately quiet.",
+    "2. SECOND: the benefit or concern, in one short line.",
+    "3. THIRD: price, offer or call to action, deliberately quiet.",
     "",
     "State that hierarchy in `composition` in those terms. If everything is",
     "large, nothing is read.",
@@ -286,13 +287,26 @@ export function buildSystemPrompt(): string {
 export function buildUserPrompt(input: BriefInput): string {
   const { snapshot, claims, placement, objective } = input;
 
+  /*
+   * The offer's own figures are permitted claims.
+   *
+   * They come from the person running the campaign, not from the model, and a
+   * promotion is a fact about the campaign rather than about the product page.
+   * The same literals are added to the deterministic gate in
+   * src/lib/policy/check.ts, from the same helper, so the instruction below and
+   * the enforcement afterwards cannot disagree: previously the prompt said
+   * "feature verbatim" while the gate blocked the result.
+   */
+  const authorised = literalsIn(input.offer);
   const permittedPercents = [
     ...claims.concentrations,
     ...(claims.discountPct !== null ? [`${claims.discountPct}%`] : []),
+    ...authorised.percents,
   ];
-  const permittedMoney = [claims.priceDisplay, claims.compareAtDisplay].filter(
-    Boolean,
-  ) as string[];
+  const permittedMoney = [
+    ...([claims.priceDisplay, claims.compareAtDisplay].filter(Boolean) as string[]),
+    ...authorised.money,
+  ];
 
   return [
     "## Product",
@@ -307,7 +321,7 @@ export function buildUserPrompt(input: BriefInput): string {
       ? [
           "## Full product page",
           "",
-          "This is the page as a customer sees it. Use it for substance —",
+          "This is the page as a customer sees it. Use it for substance:",
           "ingredients, mechanism, how it is used, what concern it addresses.",
           "It does NOT widen the claim lock: numbers still come only from the",
           "permitted list below, whatever this page appears to say.",
@@ -316,22 +330,24 @@ export function buildUserPrompt(input: BriefInput): string {
           "",
         ].join("\n")
       : "",
-    "## Permitted numeric claims — the complete list",
-    `Percentages you may use: ${permittedPercents.join(", ") || "NONE — use no percentage at all"}`,
-    `Money you may use: ${permittedMoney.join(", ") || "NONE — do not mention price"}`,
+    "## Permitted numeric claims, the complete list",
+    `Percentages you may use: ${dedupe(permittedPercents).join(", ") || "NONE. Use no percentage at all."}`,
+    `Money you may use: ${dedupe(permittedMoney).join(", ") || "NONE. Do not mention a price."}`,
     claims.discountPct !== null
       ? `Discount: ${claims.discountPct}% off`
-      : "No discount — do not imply one",
-    input.offer ? `Offer to feature verbatim: "${input.offer}"` : "",
+      : "No discount. Do not imply one.",
+    input.offer
+      ? `Offer to feature verbatim: "${input.offer}". Its figures are in the permitted list above; print them exactly as written here.`
+      : "",
     "",
     "## Brief",
-    `Objective: ${objective} — ${OBJECTIVE_GUIDANCE[objective]}`,
+    `Objective: ${objective}. ${OBJECTIVE_GUIDANCE[objective]}`,
     `Placement: ${placement.label}, ${placement.width}×${placement.height}px (${placement.platform})`,
     input.audience ? `Audience: ${input.audience}` : "",
     input.angleHint ? `Angle to explore: ${input.angleHint}` : "",
     `Produce ${input.conceptCount} DISTINCT concepts. Distinct means a different strategic angle, not reworded copy.`,
     "",
-    "## Copy limits — hard ceilings, count the characters",
+    "## Copy limits. These are hard ceilings; count the characters.",
     `headline ≤ ${input.copyLimits?.headline ?? COPY_LIMITS.headline}`,
     `subhead ≤ ${COPY_LIMITS.subhead}`,
     `primaryText ≤ ${input.copyLimits?.primaryText ?? COPY_LIMITS.primaryText}`,
@@ -345,11 +361,11 @@ export function buildUserPrompt(input: BriefInput): string {
     "## Price",
     PRICE_DISPLAY_GUIDANCE[input.priceDisplay ?? "price_only"],
     "",
-    "## Layout — pick one archetype per concept",
+    "## Layout. Pick one archetype per concept.",
     "",
     `This creative is ${placement.width}×${placement.height} (${placement.ratio}), a ${orientationOf(placement.width, placement.height).toUpperCase()} frame.`,
     "Only the layouts below can be built in it. Set `layoutArchetype` to one of",
-    "these names EXACTLY — the construction rules are expanded from it and sent",
+    "these names EXACTLY. The construction rules are expanded from it and sent",
     "to the image model, so a name outside this list loses them.",
     "",
     ...archetypesFor(placement.width, placement.height).flatMap((a) => [
@@ -369,13 +385,13 @@ export function buildUserPrompt(input: BriefInput): string {
     "## Image prompt",
     "",
     "For each concept also write an image prompt for a generative image model.",
-    "A real product photograph is supplied as a reference image — the packaging,",
+    "A real product photograph is supplied as a reference image. The packaging,",
     "label and bottle shape in your scene must match it exactly. Describe the",
     "scene around the product; never describe the product's own label text as",
     "something to invent.",
     "",
     "`textToRender` is the exact list of strings the image model will draw into",
-    "the creative. Keep it short — a headline and at most one supporting line.",
+    "the creative. Keep it short: a headline and at most one supporting line.",
     "Every string in it is subject to the same claim lock as the copy.",
     "",
     "`avoid` should list what must not appear: other brands, logos, human faces",
@@ -408,12 +424,27 @@ export async function generateBrief(
  * Flattens the structured image prompt into the string sent to the image model.
  *
  * Kept separate from generation so the exact text sent is inspectable, loggable
- * and diffable — when a creative comes out wrong, the first question is always
+ * and diffable. When a creative comes out wrong the first question is always
  * "what did we actually ask for?"
+ *
+ * `settings` is not optional decoration. The brand-mark and price choices used
+ * to reach the copy model and stop there, so the only trace of them in the
+ * image was whatever the text model happened to restate in its own
+ * `typography` and `composition` strings. Picking "no brand mark" and getting a
+ * wordmark anyway is not a near miss, it is the setting not existing. Both now
+ * travel to the model that actually draws the pixels.
  */
+export interface ImagePromptSettings {
+  brandMark?: BrandMark;
+  priceDisplay?: PriceDisplay;
+  /** The placement's own chrome rule, for the frames that have one. */
+  safeZone?: string | null;
+}
+
 export function renderImagePrompt(
   brief: { imagePrompt: BriefResponse["concepts"][number]["imagePrompt"] },
   placement: PlacementSpec,
+  settings: ImagePromptSettings = {},
 ): string {
   const p = brief.imagePrompt;
   const orientation = orientationOf(placement.width, placement.height);
@@ -445,7 +476,7 @@ export function renderImagePrompt(
   if (archetype) {
     lines.push(
       "",
-      `Layout — ${archetype.name}. Build the frame exactly this way:`,
+      `Layout: ${archetype.name}. Build the frame exactly this way:`,
       archetype.description,
     );
     if (orientation === "tall" && archetype.stacked) {
@@ -459,7 +490,7 @@ export function renderImagePrompt(
     if (devices.length > 0) {
       lines.push(
         "",
-        "Graphic devices available to this layout — use at most two, built to these rules:",
+        "Graphic devices available to this layout. Use at most two, built to these rules:",
         ...devices.flatMap((d) => [
           `  ${d.name}: ${d.what}`,
           ...d.rules.map((r) => `    - ${r}`),
@@ -486,18 +517,34 @@ export function renderImagePrompt(
 
   lines.push(
     "",
+    "Brand mark: " + BRAND_MARK_GUIDANCE[settings.brandMark ?? "on_pack_only"],
+    "Price: " + PRICE_DISPLAY_GUIDANCE[settings.priceDisplay ?? "price_only"],
+  );
+
+  /*
+   * The placement's safe zone, sent to the model that can actually act on it.
+   * It was shown in the picker and then dropped: a 9:16 story was generated
+   * with no idea that platform chrome covers the top 14% and bottom 20%, which
+   * is exactly how a headline ends up under the profile row.
+   */
+  if (settings.safeZone) {
+    lines.push(`Safe area: ${settings.safeZone}. Keep all type inside it.`);
+  }
+
+  lines.push(
+    "",
     "The product in the reference image must be reproduced faithfully: same",
     "bottle, same cap, same label artwork and same label text. Do not redesign,",
     "relabel or restyle the packaging. Do not invent label text.",
     "",
-    "Palette — use these values and no others:",
+    "Palette. Use these values and no others:",
     // A null hex is the product accent, which has no fixed value: it is sampled
     // from the pack in the reference photograph. Saying so reads correctly;
     // printing the prose in the hex column, as this used to, does not.
     ...BRAND_VISUAL.palette.map((c) =>
       c.hex
         ? `  ${c.hex}  ${c.name} (${c.use})`
-        : `  (no fixed value)  ${c.name} — ${c.use}`,
+        : `  (no fixed value)  ${c.name}: ${c.use}`,
     ),
     "",
     "Do not render any of the following:",

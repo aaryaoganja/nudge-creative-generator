@@ -6,7 +6,7 @@ import styles from "../gate.module.css";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "Sign in — Ad Studio by Nudge",
+  title: "Sign in, Ad Studio by Nudge",
   // The gate should never be indexed, and a signed-out crawler hitting any
   // route is redirected here, so this is where the instruction has to live.
   robots: { index: false, follow: false },

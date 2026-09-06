@@ -108,7 +108,7 @@ export function env(): Env {
     const detail = parsed.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    throw new Error(`Invalid environment configuration — ${detail}`);
+    throw new Error(`Invalid environment configuration. ${detail}`);
   }
 
   cached = parsed.data;

@@ -1,78 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { GeneratePanel } from "./generate-panel";
 import { ScorePanel } from "./score-panel";
+import { HistoryPanel } from "./history-panel";
+import { Nav } from "./nav";
+import { readViewState, viewHref, type View } from "./view";
 
-type Tab = "generate" | "score";
+/**
+ * The studio.
+ *
+ * View and run id both live in the URL rather than in component state, which is
+ * what makes a result shareable at all: the address bar is the whole feature.
+ * `router.replace` with `scroll: false` writes the run id in without adding a
+ * history entry per keystroke of progress, so the back button still means
+ * "the page before this one" rather than "before the run id appeared".
+ */
+function Studio() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { view, runId } = readViewState(params);
 
-const TABS: readonly { id: Tab; label: string }[] = [
-  { id: "generate", label: "Generate" },
-  { id: "score", label: "Score a creative" },
-];
+  /**
+   * Called by a panel the moment the server hands it a run id, which is at the
+   * end of "Read product" rather than after generation. That is the point of
+   * minting the id on the free step: there is something to send somebody before
+   * any money is spent.
+   */
+  const adoptRunId = useCallback(
+    (id: string) => {
+      router.replace(viewHref({ view, runId: id }), { scroll: false });
+    },
+    [router, view],
+  );
 
-export default function Home() {
-  const [tab, setTab] = useState<Tab>("generate");
+  /** Clearing it, e.g. when a different product URL is read. */
+  const clearRunId = useCallback(() => {
+    router.replace(viewHref({ view, runId: null }), { scroll: false });
+  }, [router, view]);
 
   return (
-    <div className="shell">
-      {/*
-        A div, not a <header>: the top nav is already this document's banner
-        landmark, and a second one turns "jump to the banner" into a choice.
-
-        The heading names the BRAND this studio makes ads for. It used to read
-        "Minimalist Ad Studio", which put a third product name on screen beside
-        "Ad Studio" in the nav and "Ad Studio by Nudge" in the tab — three names
-        for two things.
-      */}
-      <div className="masthead">
-        <h1>Minimalist</h1>
-        <p className="sub">
-          Paste a product URL. Everything else is read from the page.
-        </p>
-        {/*
-          A real tablist: role="tab" without aria-controls and a matching
-          role="tabpanel" announces "tab, 1 of 2" and then leaves the user with
-          no way to find what it selected. tabIndex follows the roving pattern —
-          only the selected tab is in the sequential tab order, and Left/Right
-          move between them, which is what a screen-reader user is told to
-          expect the moment the role is applied.
-        */}
-        <div className="tabs" role="tablist" aria-label="Studio mode">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              className="tab"
-              role="tab"
-              id={`tab-${id}`}
-              type="button"
-              aria-selected={tab === id}
-              aria-controls={`panel-${id}`}
-              tabIndex={tab === id ? 0 : -1}
-              onClick={() => setTab(id)}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                event.preventDefault();
-                const at = TABS.findIndex((t) => t.id === tab);
-                const step = event.key === "ArrowRight" ? 1 : -1;
-                const next = TABS[(at + step + TABS.length) % TABS.length];
-                setTab(next.id);
-                document.getElementById(`tab-${next.id}`)?.focus();
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+    <>
+      <Nav view={view} />
+      <div className="shell">
+        {view === "generate" && (
+          <GeneratePanel
+            runId={runId}
+            onRunId={adoptRunId}
+            onClearRunId={clearRunId}
+          />
+        )}
+        {view === "score" && <ScorePanel runId={runId} onRunId={adoptRunId} />}
+        {view === "history" && <HistoryPanel />}
       </div>
+    </>
+  );
+}
 
-      {/*
-        No tabIndex: the APG puts a tabpanel in the tab sequence only when it
-        holds nothing focusable, and both of these open on a form field.
-      */}
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === "generate" ? <GeneratePanel /> : <ScorePanel />}
-      </div>
-    </div>
+/**
+ * useSearchParams needs a Suspense boundary, or Next refuses to prerender the
+ * page at build time. The fallback is the empty shell rather than a spinner:
+ * it is on screen for one frame, and a flash of "Loading" is worse than a
+ * frame of the chrome that is about to be there anyway.
+ */
+export default function Home() {
+  return (
+    <Suspense fallback={<Shell />}>
+      <Studio />
+    </Suspense>
+  );
+}
+
+function Shell({ view }: { view?: View }) {
+  return (
+    <>
+      <Nav view={view ?? "generate"} />
+      <div className="shell" />
+    </>
   );
 }

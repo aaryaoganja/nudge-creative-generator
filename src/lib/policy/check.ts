@@ -47,7 +47,46 @@ function copyFields(brief: ConceptBrief): Array<[string, string]> {
   ];
 }
 
-export function checkPolicy(brief: ConceptBrief, claims: Claims): PolicyResult {
+/**
+ * Extra numbers a HUMAN authorised, over and above what the product page says.
+ *
+ * The offer field is the only one of these today. It exists because a promotion
+ * is a fact about the campaign, not about the product page: "Buy 2, get 1 free"
+ * and "20% off this week" are true things a marketer knows and the storefront
+ * JSON does not.
+ *
+ * This does not weaken the claim lock, it aims it correctly. The lock exists to
+ * stop the MODEL inventing numbers; a figure typed by the person running the ad
+ * is not an invention. What it must not do is let the model treat an authorised
+ * figure as licence to invent neighbours, which is why only the exact literals
+ * found in the offer are added, never a range and never a pattern.
+ */
+export interface AuthorisedClaims {
+  /** Free text the operator asked to be printed verbatim, e.g. the offer. */
+  offer?: string | null;
+}
+
+/** The percentage and rupee literals inside an operator-supplied string. */
+export function literalsIn(text: string | null | undefined): {
+  percents: string[];
+  money: string[];
+} {
+  if (!text) return { percents: [], money: [] };
+  return {
+    // Normalised exactly as the scanners below normalise what they find, or a
+    // permitted "₹1,499" would never match the "₹1499" the scanner produces.
+    percents: [...text.matchAll(/\d+(?:\.\d+)?\s*%/g)].map((m) =>
+      m[0].replace(/\s+/g, ""),
+    ),
+    money: [...text.matchAll(/₹\s*[\d,]+/g)].map((m) => m[0].replace(/[\s,]/g, "")),
+  };
+}
+
+export function checkPolicy(
+  brief: ConceptBrief,
+  claims: Claims,
+  authorised: AuthorisedClaims = {},
+): PolicyResult {
   const findings: Finding[] = [];
   const fields = copyFields(brief);
 
@@ -69,7 +108,7 @@ export function checkPolicy(brief: ConceptBrief, claims: Claims): PolicyResult {
   }
 
   findings.push(...checkLengths(brief));
-  findings.push(...checkClaimIntegrity(brief, claims));
+  findings.push(...checkClaimIntegrity(brief, claims, authorised));
 
   return { verdict: verdictFor(findings), findings };
 }
@@ -103,24 +142,38 @@ function checkLengths(brief: ConceptBrief): Finding[] {
  * prices separately from generated copy.
  *
  * Any percentage or rupee figure that appears in copy but NOT in the product
- * snapshot is a number the model invented. Under the ASCI substantiation
- * requirement that is an unsubstantiable claim, not a typo.
+ * snapshot and NOT authorised by the operator is a number the model invented.
+ * Under the ASCI substantiation requirement that is an unsubstantiable claim,
+ * not a typo.
+ *
+ * The offer used to be the hole in this. The prompt told the model to print the
+ * offer "verbatim, never paraphrased" while this function had never heard of
+ * it, so "20% off this week" on a product with no 20% discount left the model
+ * two ways out: obey the instruction and have the concept blocked, or obey the
+ * claim lock and silently drop the number the marketer typed. Both broke the
+ * promise on the label. Now the gate is told what the operator authorised, so
+ * the instruction and the enforcement finally agree.
  */
 export function checkClaimIntegrity(
   brief: ConceptBrief,
   claims: Claims,
+  authorised: AuthorisedClaims = {},
 ): Finding[] {
   const findings: Finding[] = [];
+  const offer = literalsIn(authorised.offer);
+
   const allowedPercents = new Set(claims.concentrations);
   if (claims.discountPct !== null) {
     allowedPercents.add(`${claims.discountPct}%`);
   }
+  for (const percent of offer.percents) allowedPercents.add(percent);
 
   const allowedMoney = new Set(
     [claims.priceDisplay, claims.compareAtDisplay].filter(
       (v): v is string => v !== null,
     ),
   );
+  for (const amount of offer.money) allowedMoney.add(amount);
 
   for (const [field, value] of copyFields(brief)) {
     for (const match of value.matchAll(/\d+(?:\.\d+)?\s*%/g)) {
@@ -132,9 +185,10 @@ export function checkClaimIntegrity(
           field,
           evidence: match[0],
           message:
-            `"${normalised}" does not appear in the product data. Permitted: ` +
-            `${[...allowedPercents].join(", ") || "none"}. A concentration or ` +
-            `discount the product does not state is an unsubstantiable claim.`,
+            `"${normalised}" does not appear in the product data or in the ` +
+            `offer you typed. Permitted: ${[...allowedPercents].join(", ") || "none"}. ` +
+            `A concentration or discount the product does not state is an ` +
+            `unsubstantiable claim.`,
         });
       }
     }

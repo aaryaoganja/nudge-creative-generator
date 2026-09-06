@@ -137,7 +137,7 @@ export function Select({
           }}
           onKeyDown={onKeyDown}
         >
-          <span>{selected?.label ?? "Select…"}</span>
+          <span>{selected?.label ?? "Select"}</span>
           {selected?.hint && <span className="select-hint">{selected.hint}</span>}
           <span className="select-caret" aria-hidden="true" />
         </button>

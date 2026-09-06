@@ -106,14 +106,14 @@ describe("validateKey", () => {
   });
 });
 
-describe("maskKey — the only rendering of a key this app allows", () => {
+describe("maskKey, the only rendering of a key this app allows", () => {
   it("shows four trailing characters and nothing else", () => {
-    assert.equal(maskKey("AIzaSyExampleKeyValueaf31"), "…af31");
+    assert.equal(maskKey("AIzaSyExampleKeyValueaf31"), "ending af31");
   });
 
   it("shows nothing at all for a key too short to mask", () => {
-    assert.equal(maskKey("abcd"), "…");
-    assert.equal(maskKey("a"), "…");
+    assert.equal(maskKey("abcd"), "hidden");
+    assert.equal(maskKey("a"), "hidden");
   });
 
   it("is null when there is no key", () => {
@@ -171,7 +171,7 @@ describe("describeKey — what the page is allowed to say", () => {
     const status = await describeKey(await sealKey("override-key-5678"));
     assert.deepEqual(status, {
       source: "override",
-      masked: "…5678",
+      masked: "ending 5678",
       environmentPresent: true,
     });
   });
@@ -181,7 +181,7 @@ describe("describeKey — what the page is allowed to say", () => {
     process.env.GEMINI_API_KEY = "env-key-1234";
     assert.deepEqual(await describeKey(null), {
       source: "environment",
-      masked: "…1234",
+      masked: "ending 1234",
       environmentPresent: true,
     });
   });
@@ -205,7 +205,7 @@ describe("describeKey — what the page is allowed to say", () => {
     process.env.DATABASE_URL = "not-a-url";
     const status = await describeKey(await sealKey("override-key-5678"));
     assert.equal(status.source, "override");
-    assert.equal(status.masked, "…5678");
+    assert.equal(status.masked, "ending 5678");
   });
 });
 

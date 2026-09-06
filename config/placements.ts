@@ -7,19 +7,19 @@
  * is truncated by Google at 30, and discovering that at upload time is too late.
  *
  * ONE ROW PER SIZE, not per surface. A row costs a render, and two rows at the
- * same pixel size buy the identical file twice — so Meta's feed square and
+ * same pixel size buy the identical file twice, so Meta's feed square and
  * carousel card are one 1080×1080 row, and Threads rides the 1080×1350 feed row
- * because its spec follows Instagram's exactly. Where a size serves several
- * surfaces the label says so, which is why Meta rows need no separate surface
- * or hint line to read. Google keeps its hints: "required asset" versus
- * "optional" is the difference between an ad that serves and one that doesn't.
+ * because its spec follows Instagram's exactly. Labels are short because they
+ * sit in a card beside the pixel size, which says the rest. Google keeps its
+ * hints: "required asset" versus "optional" is the difference between an ad
+ * that serves and one that does not.
  *
  * Verified against current 2026 platform guidance. Two changes worth knowing:
  * Instagram's scrollable Explore feed was removed in January 2026 and that
  * inventory now delivers through Reels, and Stories/Reels safe zones were
  * unified in March 2026 so they no longer need separate treatment.
  *
- * Sizes are MINIMUMS on both platforms — larger renders are accepted and
+ * Sizes are MINIMUMS on both platforms. Larger renders are accepted and
  * preferred, which is why a 2K generation needs no downscale.
  */
 
@@ -28,7 +28,7 @@ export type Platform = "meta" | "google";
 /** Character ceilings differ per platform and are enforced before render. */
 export interface CopyLimits {
   headline: number;
-  /** Meta calls this "primary text"; Google's nearest equivalent is description. */
+  /** Meta calls this "primary text". Google's nearest equivalent is description. */
   primaryText: number;
   description: number;
   /** Google responsive display only. */
@@ -68,8 +68,8 @@ export const PLACEMENTS: PlacementSpec[] = [
   {
     id: "meta_feed_4x5",
     platform: "meta",
-    label: "Facebook & Instagram feed",
-    surface: "Facebook & Instagram",
+    label: "Meta Feed",
+    surface: "Facebook and Instagram",
     width: 1080,
     height: 1350,
     ratio: "4:5",
@@ -79,8 +79,8 @@ export const PLACEMENTS: PlacementSpec[] = [
   {
     id: "meta_story_9x16",
     platform: "meta",
-    label: "Instagram & Facebook full screen",
-    surface: "Instagram & Facebook",
+    label: "Stories and Reels",
+    surface: "Instagram and Facebook, full screen",
     width: 1080,
     height: 1920,
     ratio: "9:16",
@@ -88,13 +88,13 @@ export const PLACEMENTS: PlacementSpec[] = [
     priority: 2,
     // The one hint Meta keeps: chrome eats the edges, and a headline placed
     // there is lost at delivery rather than at review.
-    safeZone: "Keep text clear of the top 14% and bottom 20% — platform chrome",
+    safeZone: "Keep text clear of the top 14% and bottom 20%, which platform chrome covers",
   },
   {
     id: "meta_feed_1x1",
     platform: "meta",
-    label: "Facebook & Instagram feed & carousel",
-    surface: "Facebook & Instagram",
+    label: "Feed square and Carousel",
+    surface: "Facebook and Instagram",
     width: 1080,
     height: 1080,
     ratio: "1:1",
@@ -152,8 +152,8 @@ export function placementsSorted(): PlacementSpec[] {
  * The selection the picker opens on.
  *
  * A preselection is an opening offer to edit, not an answer: the two Meta
- * surfaces a marketer actually buys — the 4:5 feed unit and the 9:16 full
- * screen — so the first run returns something usable and the rest of the list
+ * surfaces a marketer actually buys, the 4:5 feed unit and the 9:16 full
+ * screen, so the first run returns something usable and the rest of the list
  * still reads as a choice. Preselecting everything quietly bills six images per
  * concept; preselecting one hides that the other sizes exist.
  */
@@ -170,7 +170,7 @@ export function defaultPlacementIds(): string[] {
  * The tightest limits across a multi-platform selection.
  *
  * Generating one set of copy for both platforms means writing to whichever is
- * stricter — Google's 30-character headline, not Meta's 40 — or the Google
+ * stricter, Google's 30-character headline rather than Meta's 40, or the Google
  * version arrives truncated.
  */
 export function limitsFor(placementIds: string[]): CopyLimits & {
@@ -208,9 +208,17 @@ export function limitsFor(placementIds: string[]): CopyLimits & {
 }
 
 /**
- * Preset briefs, so the offer and angle fields start populated rather than
- * blank. A blank field asks the marketer to invent a prompt; a chip they can
- * click and then edit asks them to react to one, which is a much easier job.
+ * Preset briefs.
+ *
+ * A blank field asks the marketer to invent a prompt; a chip they can click and
+ * then edit asks them to react to one, which is a much easier job.
+ *
+ * Note what is NOT here: a default. The panel seeds the offer and the angle
+ * from the resolved product rather than from this list, because the two presets
+ * carrying figures ("20% off this week", "Free shipping over ₹499") are only
+ * true of a product that actually has that offer, and the deterministic claim
+ * gate blocks any figure the operator has not authorised. Picking one is an
+ * assertion; defaulting to one would be an invention.
  */
 export const OFFER_PRESETS = [
   "20% off this week",
@@ -224,7 +232,7 @@ export const ANGLE_PRESETS = [
   "Lead with the active and its concentration",
   "Answer the single biggest objection",
   "Show the routine step this replaces",
-  "Seasonal — monsoon, summer, winter skin",
+  "Seasonal: monsoon, summer, winter skin",
   "First-time buyer, no prior knowledge",
   "Compare against the reader's current routine",
 ];

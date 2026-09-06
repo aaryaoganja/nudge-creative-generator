@@ -2,10 +2,12 @@ import { z } from "zod";
 import {
   BRAND_VISUAL,
   BRAND_VOICE,
+  OBJECTIVE_GUIDANCE,
   POLICY_RULES,
+  type Objective,
 } from "../../../config/brand.ts";
 import { checkPlacement } from "../image/meta.ts";
-import type { PlacementSpec } from "./types.ts";
+import { houseStyle, type PlacementSpec } from "./types.ts";
 import type { ProductSnapshot } from "../scrape/shopify.ts";
 import type { GeminiTextClient, TextResult } from "../providers/gemini-text.ts";
 
@@ -52,8 +54,11 @@ export const WEIGHTS: Record<Dimension, number> = {
 export const FindingSchema = z.object({
   severity: z.enum(["blocking", "major", "minor"]),
   dimension: z.enum(DIMENSIONS),
-  observation: z.string(),
-  action: z.string(),
+  // Rendered verbatim in the findings list, so held to the same house style as
+  // the generator's copy. The scorer is a second model-output-to-screen path
+  // and cleaning only the generator would leave half the product uncovered.
+  observation: z.string().transform(houseStyle),
+  action: z.string().transform(houseStyle),
   /** false when no product URL was supplied and the claim cannot be checked. */
   verified: z.boolean(),
 });
@@ -97,9 +102,9 @@ export const VisionScoreSchema = z.object({
    */
   competingBrandVisible: z.boolean(),
   findings: z.array(FindingSchema),
-  doMore: z.array(z.string()).max(5),
-  doLess: z.array(z.string()).max(5),
-  summary: z.string(),
+  doMore: z.array(z.string().transform(houseStyle)).max(5),
+  doLess: z.array(z.string().transform(houseStyle)).max(5),
+  summary: z.string().transform(houseStyle),
 });
 
 export type VisionScore = z.infer<typeof VisionScoreSchema>;
@@ -225,16 +230,16 @@ export function buildScorerSystemPrompt(): string {
     "## Brand positioning",
     BRAND_VOICE.positioning,
     "",
-    "## Voice — what on-brand sounds like",
+    "## Voice, what on-brand sounds like",
     ...BRAND_VOICE.register.map((r) => `- ${r}`),
     "",
     "The brand never does these:",
     ...BRAND_VOICE.avoids.map((a) => `- ${a}`),
     "",
-    "## Visual identity — what on-brand looks like",
+    "## Visual identity, what on-brand looks like",
     "",
     "Palette:",
-    ...BRAND_VISUAL.palette.map((c) => `- ${c.name} ${c.hex} — ${c.use}`),
+    ...BRAND_VISUAL.palette.map((c) => `- ${c.name} ${c.hex}: ${c.use}`),
     "",
     "Typography:",
     ...BRAND_VISUAL.typography.map((t) => `- ${t}`),
@@ -249,39 +254,39 @@ export function buildScorerSystemPrompt(): string {
     "You cannot tell whose creative you are looking at without knowing the pack:",
     "- White or amber-glass dropper bottles, and plain white tubes. Nothing",
     "  colour-blocked, nothing metallic, no ornament on the pack itself",
-    `- A lowercase \`${BRAND_VOICE.brand.toLowerCase()}\` wordmark, set small and quiet — never a`,
+    `- A lowercase \`${BRAND_VOICE.brand.toLowerCase()}\` wordmark, set small and quiet, never a`,
     "  monogram, never a serif logotype, never inside a badge or roundel",
     "- A thin coloured rule directly under the product name, colour-coded to the",
     "  range the product belongs to",
     "- The active and its concentration printed on the front, at the largest size",
     "  on the label: '10% Niacinamide', '2% Salicylic Acid', '15.6% hair actives'",
-    "- A clinical spec-sheet block on the label — actives and their percentages,",
-    "  pH, net volume — set like a datasheet rather than like beauty copy",
+    "- A clinical spec-sheet block on the label: actives and their percentages,",
+    "  pH, net volume, set like a datasheet rather than like beauty copy",
     "",
     "## Whose creative is this?",
     "",
     "Decide this FIRST, before you score anything. Packaging, wordmark,",
     "typography and palette together tell you whether the creative is",
-    `${BRAND_VOICE.brand}'s. If it is plainly another company's ad — their pack,`,
-    "their logotype, their type and colour — say so plainly: set",
+    `${BRAND_VOICE.brand}'s. If it is plainly another company's ad, with their pack,`,
+    "their logotype, their type and colour, say so plainly: set",
     "`brandIdentity.isThisBrand` false, name the company in `detectedBrand` when",
     "its wordmark or pack is legible, and quote what you saw in `evidence`.",
     "`confidence` is 0–1 and refers to that judgement, not to the ad's quality.",
     "",
     "Set `isThisBrand` false only on positive evidence of another brand. A",
     "creative with no pack, no wordmark and nothing else to go on is not another",
-    "brand's — it is unattributed. Leave `isThisBrand` true there, set",
+    "brand's. It is unattributed. Leave `isThisBrand` true there, set",
     "`confidence` at or below 0.3, and say in `evidence` that there was no signal.",
     "`detectedBrand` is null unless you can actually read the name.",
     "",
     "Three judgements that look alike and are not:",
-    "- WRONG BRAND — the whole creative belongs to another company. It scores 0",
+    "- WRONG BRAND: the whole creative belongs to another company. It scores 0",
     "  outright. There is no partial credit for reviewing someone else's ad.",
-    `- CONTAMINATION — a ${BRAND_VOICE.brand} creative with a competitor's pack,`,
+    `- CONTAMINATION: a ${BRAND_VOICE.brand} creative with a competitor's pack,`,
     "  logo or wordmark somewhere in the frame. That is `competingBrandVisible`:",
     "  it blocks the creative but keeps its score, because it is one fixable",
     "  defect in an otherwise real creative.",
-    `- GENERIC — ours, but so interchangeable it could carry anyone's logo. That`,
+    `- GENERIC: ours, but so interchangeable it could carry anyone's logo. That`,
     "  is `readsAsGenericSkincareAd`, below: a weakness, not a block.",
     "",
     "## The generic-skincare-ad test",
@@ -294,7 +299,7 @@ export function buildScorerSystemPrompt(): string {
     "Set `readsAsGenericSkincareAd` true if the creative would be at home in any",
     "drugstore brand's feed, and list what gave it away in `genericMarkers`.",
     "",
-    "## Compliance — India",
+    "## Compliance, India",
     "",
     "This brand advertises in India. Under the ASCI code every objectively",
     "ascertainable claim must be capable of substantiation on demand, and under",
@@ -318,7 +323,7 @@ export function buildScorerSystemPrompt(): string {
     "`extractedText`, character for character, including small print. Score each",
     "dimension 0–100 against the anchors below. Then write findings.",
     "",
-    "Score anchors — apply them strictly, do not cluster around 70:",
+    "Score anchors. Apply them strictly and do not cluster around 70:",
     "- 90–100: shippable as-is; nothing you would change",
     "- 70–89:  shippable after minor edits",
     "- 50–69:  a real weakness that will cost performance",
@@ -326,7 +331,7 @@ export function buildScorerSystemPrompt(): string {
     "- 0–24:   unusable, or non-compliant",
     "",
     "`doMore` and `doLess` are the headline actions, ordered most important",
-    "first. Each must be concrete and specific to THIS creative — 'increase the",
+    "first. Each must be concrete and specific to THIS creative, so 'increase the",
     "headline size so the concentration is the first thing read' rather than",
     "'improve hierarchy'.",
     "",
@@ -335,19 +340,28 @@ export function buildScorerSystemPrompt(): string {
 }
 
 export function buildScorerUserPrompt(
-  placement: PlacementSpec,
+  placement: PlacementSpec | null,
   snapshot: ProductSnapshot | null,
   pageMarkdown?: string | null,
+  objective?: Objective | null,
 ): string {
   const lines = [
     `## Creative under review`,
-    `Intended placement: ${placement.label}, ${placement.width}×${placement.height} (${placement.platform})`,
+    placement
+      ? `Intended placement: ${placement.label}, ${placement.width}×${placement.height} (${placement.platform})`
+      : // Said plainly rather than defaulted. Judging a square creative against
+        // a 4:5 spec nobody chose produces a craft failure the creative did not
+        // commit, which is worse than admitting the spec is unknown.
+        "Intended placement: not stated. Judge composition on its own terms and do not assume a target aspect ratio or crop.",
+    objective
+      ? `Campaign objective: ${objective}. ${OBJECTIVE_GUIDANCE[objective]} Score stopping power and clarity against THAT job, not against a generic one.`
+      : "Campaign objective: not stated. Judge it as a general-purpose creative.",
     "",
   ];
 
   if (snapshot) {
     lines.push(
-      "## Source of truth — the product page",
+      "## Source of truth, the product page",
       "",
       "Every product claim in the creative must match this. A concentration,",
       "price or ingredient in the image that is absent here is an invented claim:",
@@ -381,7 +395,7 @@ export function buildScorerUserPrompt(
       "correct, or whether ingredient claims are supported.",
       "",
       "For every such observation, set `verified: false` and begin the",
-      "observation with 'Unverified —'. Do NOT assume a claim is correct because",
+      "observation with 'Unverified:'. Do NOT assume a claim is correct because",
       "it looks plausible, and do NOT assume it is wrong. Say what would need",
       "checking and note that supplying the product URL would resolve it.",
       "",
@@ -490,13 +504,13 @@ function wrongBrandFinding(identity: BrandIdentity): ScoreFinding {
     dimension: "brand_fit",
     observation: [
       other
-        ? `This is not a ${BRAND_VOICE.brand} creative — it is an ad for ${other}.`
+        ? `This is not a ${BRAND_VOICE.brand} creative. It is an ad for ${other}.`
         : // Deliberately does NOT enumerate "the packaging, wordmark and type",
           // as it once did. When detectedBrand is null the model could not read
           // a name, and asserting which specific elements are another brand's is
           // a fact we do not have. The evidence line that follows says what it
           // actually saw; the finding should not add to it.
-          `This is not a ${BRAND_VOICE.brand} creative — the brand cues in it are somebody else's.`,
+          `This is not a ${BRAND_VOICE.brand} creative. The brand cues in it are somebody else's.`,
       identity.evidence.trim(),
     ]
       .filter(Boolean)
@@ -514,8 +528,8 @@ function wrongBrandSummary(identity: BrandIdentity): string {
   const other = namedBrand(identity);
   return [
     other
-      ? `0/100 — this creative is not ${BRAND_VOICE.brand}'s. It is ${other}'s.`
-      : `0/100 — this creative is not ${BRAND_VOICE.brand}'s.`,
+      ? `0/100. This creative is not ${BRAND_VOICE.brand}'s, it is ${other}'s.`
+      : `0/100. This creative is not ${BRAND_VOICE.brand}'s.`,
     identity.evidence.trim(),
     `Nothing else in this report applies until a ${BRAND_VOICE.brand} creative is uploaded.`,
   ]
@@ -532,9 +546,17 @@ function zeroedDimensions(): Record<Dimension, number> {
 
 export interface ScoreInput {
   image: { bytes: Uint8Array; mimeType: string };
-  placement: PlacementSpec;
+  /** null when the uploader did not say what the creative is for. */
+  placement: PlacementSpec | null;
   snapshot: ProductSnapshot | null;
   pageMarkdown?: string | null;
+  /**
+   * What the creative was written to do, when the uploader knows. A creative
+   * judged for stopping power against an awareness brief and one judged against
+   * a retargeting brief are two different reviews, and the scorer was making
+   * the same one either way.
+   */
+  objective?: Objective | null;
 }
 
 export async function scoreCreative(
@@ -550,6 +572,7 @@ export async function scoreCreative(
         input.placement,
         input.snapshot,
         input.pageMarkdown,
+        input.objective ?? null,
       ),
       responseSchema: SCORER_RESPONSE_SCHEMA,
       temperature: 0,
@@ -567,7 +590,9 @@ export async function scoreCreative(
       severity: "blocking",
       dimension: "craft",
       observation: failure,
-      action: `Re-export at ${input.placement.width}×${input.placement.height} or larger, as PNG or JPG.`,
+      action: input.placement
+        ? `Re-export at ${input.placement.width}×${input.placement.height} or larger, as PNG or JPG.`
+        : "Re-export as PNG or JPG, within the placement's file size cap.",
       verified: true,
     });
   }

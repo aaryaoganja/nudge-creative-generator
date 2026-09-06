@@ -10,7 +10,9 @@ import { ImageProviderError, type AspectRatio } from "@/lib/providers/image";
 import { generateBrief, renderImagePrompt } from "@/lib/pipeline/brief";
 import { claimsFrom, PLACEMENTS_BY_ID, limitsFor } from "@/lib/pipeline/types";
 import { discountPct } from "@/lib/scrape/shopify";
-import { newRunId, recordRun } from "@/lib/run";
+import { finishRun, isRunId, newRunId, startRun } from "@/lib/run";
+import { assetUrl, storage } from "@/lib/storage";
+import { orientationOf } from "../../../../config/brand";
 import { checkPolicy } from "@/lib/policy/check";
 import { checkPlacement } from "@/lib/image/meta";
 import { env } from "@/lib/env";
@@ -47,8 +49,21 @@ function aspectRatioFor(placement: { width: number; height: number }): AspectRat
 
 const RequestSchema = z.object({
   url: z.string().min(1).max(2000),
+  /**
+   * The id /api/resolve minted, so the confirmation the user already has a link
+   * to becomes the finished run rather than a second, orphaned one. Optional so
+   * the endpoint stays usable on its own.
+   */
+  runId: z.string().max(40).optional(),
   /** Multi-select: one brief, rendered for every chosen placement. */
-  placementIds: z.array(z.string()).min(1).max(8).default(["meta_feed_4x5"]),
+  // Matches defaultPlacementIds() in config/placements.ts, which is what the
+  // picker opens on. A schema default that disagreed with the UI meant an API
+  // caller and a UI user got different creatives from the same request.
+  placementIds: z
+    .array(z.string())
+    .min(1)
+    .max(8)
+    .default(["meta_feed_4x5", "meta_story_9x16"]),
   objective: z
     .enum(["awareness", "consideration", "conversion", "retargeting"])
     .default("conversion"),
@@ -107,11 +122,30 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   }
-  // The brief is written once against the tightest limits in the selection;
-  // each placement then renders from it.
-  const primary = selected[0];
+  /*
+   * One brief per FRAME SHAPE, not one per run.
+   *
+   * The brief carries the frame's orientation and the archetype menu that can
+   * be built in it (src/lib/pipeline/brief.ts buildUserPrompt). Writing one
+   * brief for placementIds[0] and rendering every placement from it meant a
+   * 1200x628 banner was built from a plan written for a 4:5 frame, and which
+   * placement won was whichever the user happened to tick first: the picker
+   * appends on select, so the "primary" was invisible click order.
+   *
+   * Grouping by orientation is the smallest correct unit. Two placements that
+   * are both tall share a plan honestly; a tall one and a wide one do not.
+   */
+  const byOrientation = new Map<string, typeof selected>();
+  for (const placement of selected) {
+    const shape = orientationOf(placement.width, placement.height);
+    byOrientation.set(shape, [...(byOrientation.get(shape) ?? []), placement]);
+  }
+
   const limits = limitsFor(input.placementIds);
-  const runId = newRunId("generation");
+  // Reuse the id from the confirmation step when the client has one, so the URL
+  // the user already copied is the URL of the finished run.
+  const runId =
+    input.runId && isRunId(input.runId) ? input.runId : newRunId("generation");
   const startedAt = new Date().toISOString();
 
   const config = env();
@@ -139,6 +173,45 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
+
+  /*
+   * Everything the user chose, kept with the run.
+   *
+   * The old record stored the URL, objective, concept count, placements and the
+   * two display switches, and dropped offer, angle, audience, which reference
+   * images were picked, and every confirm-step correction. Those omissions are
+   * the claim-bearing ones: a run that printed a corrected concentration had no
+   * record that a human had corrected it. If it changed the output, it belongs
+   * here.
+   */
+  const runInputs: Record<string, unknown> = {
+    url: input.url,
+    canonical: verdict.canonical,
+    placementIds: input.placementIds,
+    objective: input.objective,
+    concepts: input.concepts,
+    brandMark: input.brandMark,
+    priceDisplay: input.priceDisplay,
+    offer: input.offer ?? null,
+    angleHint: input.angleHint ?? null,
+    audience: input.audience ?? null,
+    referenceImageIndexes: input.referenceImageIndexes,
+    overrides: input.overrides ?? null,
+    models: {
+      text: config.GEMINI_TEXT_MODEL,
+      image: config.GEMINI_IMAGE_MODEL,
+    },
+  };
+
+  // Opened before any work, so a run that fails still has an identity and a
+  // link. Only the success path used to be recorded, which meant the one run
+  // somebody actually needed to send you was the one with no id.
+  await startRun({
+    id: runId,
+    kind: "generation",
+    productUrl: verdict.canonical,
+    inputs: runInputs,
+  });
 
   try {
     // ── resolve ───────────────────────────────────────────────────────────
@@ -175,45 +248,96 @@ export async function POST(request: Request) {
       config.FIRECRAWL_API_KEY,
     );
 
-    // ── brief ─────────────────────────────────────────────────────────────
+    // ── brief, one per frame shape ────────────────────────────────────────
     const text = new GeminiTextClient(geminiKey, config.GEMINI_TEXT_MODEL);
-    const brief = await generateBrief(text, {
-      snapshot,
-      claims,
-      placement: primary,
-      objective: input.objective,
-      conceptCount: input.concepts,
-      offer: input.offer,
-      angleHint: input.angleHint,
-      audience: input.audience,
-      pageMarkdown: page?.markdown ?? null,
-      brandMark: input.brandMark,
-      priceDisplay: input.priceDisplay,
-      copyLimits: {
-        headline: limits.headline,
-        primaryText: limits.primaryText,
-        description: limits.description,
-      },
-    });
+
+    // Sequential, not parallel: two or three calls at a few thousand tokens
+    // each are quick, and the 120s route budget is spent almost entirely on
+    // image generation below. Racing them would buy a second and risk a rate
+    // limit on the one call the whole run depends on.
+    const briefs = new Map<string, Awaited<ReturnType<typeof generateBrief>>>();
+    for (const [shape, placements] of byOrientation) {
+      briefs.set(
+        shape,
+        await generateBrief(text, {
+          snapshot,
+          claims,
+          placement: placements[0],
+          objective: input.objective,
+          conceptCount: input.concepts,
+          offer: input.offer,
+          angleHint: input.angleHint,
+          audience: input.audience,
+          pageMarkdown: page?.markdown ?? null,
+          brandMark: input.brandMark,
+          priceDisplay: input.priceDisplay,
+          copyLimits: {
+            headline: limits.headline,
+            primaryText: limits.primaryText,
+            description: limits.description,
+          },
+        }),
+      );
+    }
+
+    const briefUsd = [...briefs.values()].reduce(
+      (sum, b) => sum + b.usage.costUsd,
+      0,
+    );
+    const briefTokens = [...briefs.values()].reduce(
+      (acc, b) => ({
+        input: acc.input + b.usage.inputTokens,
+        output: acc.output + b.usage.outputTokens,
+      }),
+      { input: 0, output: 0 },
+    );
 
     // ── policy gate, before any image spend ───────────────────────────────
-    const gated = brief.value.concepts.map((concept) => ({
-      concept,
-      policy: checkPolicy(concept, claims),
-    }));
+    // The offer's own figures are authorised claims: a promotion is a fact
+    // about the campaign, and the prompt is told to print it verbatim. Without
+    // this the gate would block the model for obeying the instruction.
+    const authorised = { offer: input.offer ?? null };
+    const gated = [...briefs.entries()].flatMap(([shape, b]) =>
+      b.value.concepts.map((concept) => ({
+        shape,
+        concept,
+        policy: checkPolicy(concept, claims, authorised),
+      })),
+    );
     const passing = gated.filter((g) => g.policy.verdict !== "blocked");
 
     if (passing.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Every concept was blocked by the policy gate. No image was generated and nothing was spent on generation.",
+      await finishRun({
+        id: runId,
+        status: "blocked",
+        summary: `Blocked before generation: ${snapshot.title}`,
+        subject: snapshot.title,
+        productUrl: snapshot.sourceUrl,
+        costUsd: briefUsd,
+        inputs: runInputs,
+        payload: {
+          stage: "blocked",
+          snapshot,
+          claims,
           concepts: gated.map((g) => ({
             name: g.concept.concept.name,
             copy: g.concept.copy,
             policy: g.policy,
           })),
-          cost: { briefUsd: brief.usage.costUsd, imageUsd: 0 },
+          cost: { briefUsd, imageUsd: 0, totalUsd: briefUsd },
+        },
+      });
+      return NextResponse.json(
+        {
+          runId,
+          error:
+            "Every concept was blocked by the policy gate. No image was generated, so nothing was spent on generation.",
+          concepts: gated.map((g) => ({
+            name: g.concept.concept.name,
+            copy: g.concept.copy,
+            policy: g.policy,
+          })),
+          cost: { briefUsd, imageUsd: 0 },
         },
         { status: 422 },
       );
@@ -257,9 +381,18 @@ export async function POST(request: Request) {
     const results = [];
     let imageSpend = 0;
 
-    for (const { concept, policy } of passing) {
-      for (const placement of selected) {
-      const prompt = renderImagePrompt(concept, placement);
+    const assets = storage();
+    const assetShas: string[] = [];
+
+    for (const { shape, concept, policy } of passing) {
+      // Only the placements this concept was actually briefed for. A concept
+      // written against a tall frame is not rendered into a banner.
+      for (const placement of byOrientation.get(shape) ?? []) {
+      const prompt = renderImagePrompt(concept, placement, {
+        brandMark: input.brandMark,
+        priceDisplay: input.priceDisplay,
+        safeZone: placement.safeZone ?? null,
+      });
       try {
         const image = await imageProvider.generate({
           prompt,
@@ -271,6 +404,26 @@ export async function POST(request: Request) {
 
         const placementCheck = checkPlacement(image.bytes, placement);
 
+        /*
+         * Persisted by content hash, and referenced by URL rather than inlined.
+         *
+         * The response used to carry every image as a base64 data URL. At 2K
+         * that is one to three megabytes per creative before base64 adds a
+         * third, all of it buffered in the Node heap of the container serving
+         * the UI, and none of it recoverable afterwards. A stored asset makes
+         * the response small AND makes a shared run openable tomorrow.
+         *
+         * When there is no database the put returns null and `url` is null; the
+         * data URL below is the fallback so the picture still appears for the
+         * person who generated it. Degrade, never fail.
+         */
+        const stored = await assets.put(image.bytes, {
+          mimeType: image.mimeType,
+          width: placementCheck.meta.width,
+          height: placementCheck.meta.height,
+        });
+        if (stored) assetShas.push(stored.sha256);
+
         results.push({
           placement,
           concept: concept.concept,
@@ -278,7 +431,10 @@ export async function POST(request: Request) {
           policy,
           prompt,
           image: {
-            dataUrl: `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString("base64")}`,
+            url: stored ? assetUrl(stored.sha256) : null,
+            dataUrl: stored
+              ? null
+              : `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString("base64")}`,
             mimeType: image.mimeType,
             bytes: image.bytes.byteLength,
             width: placementCheck.meta.width,
@@ -309,28 +465,17 @@ export async function POST(request: Request) {
       }
     }
 
-    const totalUsd = brief.usage.costUsd + imageSpend;
-    recordRun({
-      id: runId,
-      kind: "generation",
-      startedAt,
-      summary: `${results.filter((r) => r.image).length} creative(s) · ${selected.map((p) => p.label).join(", ")}`,
-      subject: snapshot.title,
-      costUsd: totalUsd,
-      outcome: `${passing.length} passed, ${gated.length - passing.length} blocked`,
-      detail: {
-        url: input.url,
-        objective: input.objective,
-        concepts: input.concepts,
-        placementIds: input.placementIds,
-        brandMark: input.brandMark,
-        priceDisplay: input.priceDisplay,
-        models: { text: brief.model, image: config.GEMINI_IMAGE_MODEL },
-      },
-    });
+    const totalUsd = briefUsd + imageSpend;
+    const rendered = results.filter((r) => r.image).length;
+    const textModel = [...briefs.values()][0]?.model ?? config.GEMINI_TEXT_MODEL;
 
-    return NextResponse.json({
-      runId,
+    /*
+     * The payload IS the response. Building the two separately is how a shared
+     * link drifts from what the person who ran it saw, so the object is
+     * assembled once and used for both.
+     */
+    const payload = {
+      stage: "generated" as const,
       snapshot,
       claims,
       placements: selected,
@@ -339,21 +484,47 @@ export async function POST(request: Request) {
         .filter((g) => g.policy.verdict === "blocked")
         .map((g) => ({ name: g.concept.concept.name, policy: g.policy })),
       cost: {
-        briefUsd: brief.usage.costUsd,
+        briefUsd,
         imageUsd: imageSpend,
-        totalUsd: brief.usage.costUsd + imageSpend,
-        inputTokens: brief.usage.inputTokens,
-        outputTokens: brief.usage.outputTokens,
+        totalUsd,
+        inputTokens: briefTokens.input,
+        outputTokens: briefTokens.output,
       },
-      models: { text: brief.model, image: config.GEMINI_IMAGE_MODEL },
+      models: { text: textModel, image: config.GEMINI_IMAGE_MODEL },
       enrichment: {
         used: page !== null,
         chars: page?.markdown.length ?? 0,
         warning: enrichmentWarning,
       },
       referenceImages: references.map((image) => image.src),
+    };
+
+    await finishRun({
+      id: runId,
+      status: rendered > 0 ? "ok" : "failed",
+      summary: `${rendered} creative${rendered === 1 ? "" : "s"}: ${selected.map((p) => p.label).join(", ")}`,
+      subject: snapshot.title,
+      productUrl: snapshot.sourceUrl,
+      costUsd: totalUsd,
+      inputs: runInputs,
+      payload,
+      // Deduplicated: content addressing means two placements that produced
+      // identical bytes share one row, and listing the same hash twice would
+      // make the retention sweep think there is more to keep than there is.
+      assetShas: [...new Set(assetShas)],
     });
+
+    return NextResponse.json({ runId, startedAt, ...payload });
   } catch (error) {
+    await finishRun({
+      id: runId,
+      status: "failed",
+      summary: "Generation failed",
+      costUsd: 0,
+      inputs: runInputs,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
     if (error instanceof FetchRejectedError) {
       return NextResponse.json(
         { error: error.message, reason: error.reason },

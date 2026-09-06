@@ -36,7 +36,7 @@ export const BRAND_VOICE: BrandVoice = {
     "what strength, not by the outcome they promise.",
   register: [
     "Education-first: explain the active and why the concentration matters",
-    "Clinical and plain — closer to a lab note than a beauty ad",
+    "Clinical and plain, closer to a lab note than a beauty ad",
     "Confident without hyperbole; the number is the proof, not the adjective",
     "Minimal ornamentation in both language and layout",
   ],
@@ -47,7 +47,7 @@ export const BRAND_VOICE: BrandVoice = {
     "Respect the reader's intelligence",
   ],
   avoids: [
-    "Fear-based marketing — no shame, anxiety or urgency about appearance",
+    "Fear-based marketing. No shame, anxiety or urgency about appearance",
     "Celebrity endorsement framing",
     "Exaggerated or absolute outcome claims",
     "Miracle/transformation language",
@@ -127,7 +127,7 @@ export const BRAND_VISUAL: BrandVisual = {
     {
       name: "Paper white",
       hex: "#FFFFFF",
-      use: "The ground, edge to edge, in almost every creative. Flat — no gradient, no vignette, no texture",
+      use: "The ground, edge to edge, in almost every creative. Flat: no gradient, no vignette, no texture",
     },
     {
       name: "Bone",
@@ -157,26 +157,26 @@ export const BRAND_VISUAL: BrandVisual = {
     {
       name: "Product accent",
       hex: null,
-      use: "Sampled from the pack in the reference photograph — the product's own colour and nothing else. Permitted on exactly one phrase of copy, or on a molecule diagram. Never a background, never a button, never a second phrase",
+      use: "Sampled from the pack in the reference photograph. The product's own colour and nothing else. Permitted on exactly one phrase of copy, or on a molecule diagram. Never a background, never a button, never a second phrase",
     },
   ],
   typography: [
-    "Geometric or neo-grotesque sans only — no serifs, no scripts, no display faces",
+    "Geometric or neo-grotesque sans only: no serifs, no scripts, no display faces",
     "Headline in heavy weight Ink, left aligned, two lines maximum, tight tracking with generous leading",
     "The specification lives INSIDE the headline at full headline size ('B12 + Oat Extract 6.5%'), never demoted to a badge or a caption",
     "Weight, not size, carries the second line: a heavy line above a lighter line of the same or smaller size. Two weights maximum in one creative",
     "Body copy regular weight, sentence case, one or two lines, set well below the headline",
     "Uppercase is reserved for exactly three things: the eyebrow chip, the small-caps leader labels, and the single very large offer line. Everything else is sentence case",
-    "Small-caps leader labels are the smallest type in the frame — letter-spaced, Graphite, one to three words",
+    "Small-caps leader labels are the smallest type in the frame: letter-spaced, Graphite, one to three words",
     "One accent-coloured phrase per creative at most, and only in the product's own colour",
   ],
   photography: [
-    "The real product, photographed — never illustrated, rendered or restyled",
+    "The real product, photographed. Never illustrated, rendered or restyled",
     "Shot on flat white with no environment, no set, no surface texture and no horizon line",
-    "Products stand on white geometric pedestals — cubes, cylinders, stepped blocks — at two or three different heights, or lie in a flat-lay directly on the white",
+    "Products stand on white geometric pedestals (cubes, cylinders, stepped blocks) at two or three different heights, or lie in a flat-lay directly on the white",
     "Even, diffuse light; a short soft grey contact shadow under each pedestal, never a long dramatic cast shadow",
     "A cluster of two to four units reads as the range; labels stay front-facing and legible",
-    "At most two props beyond the pedestals, drawn from the prop vocabulary in CREATIVE_GRAMMAR — clear glass, a petri dish with a smear of the product, a single raw ingredient, a molecule diagram",
+    "At most two props beyond the pedestals, drawn from the prop vocabulary in CREATIVE_GRAMMAR: clear glass, a petri dish with a smear of the product, a single raw ingredient, a molecule diagram",
     "No hands, no models, no bathroom, no plants, no fabric, no water",
   ],
   /*
@@ -187,12 +187,12 @@ export const BRAND_VISUAL: BrandVisual = {
    * chosen against the frame's aspect ratio by archetypesFor().
    */
   composition: [
-    "One idea per creative, and one element larger than everything else — the specification figure or the offer line",
+    "One idea per creative, and one element larger than everything else: the specification figure or the offer line",
     "Reading order is enforced by size: eyebrow chip, headline with the specification, supporting line, then CTA",
     "35–45% of the frame stays empty white; devices float on it and are separated by space, not by boxes",
     "Only the callout boxes and the CTA are enclosed. Nothing else gets a border, a card or a background fill",
     "Text and product never overlap; a leader line may cross empty white but never the type",
-    "The ad is never framed — no outer border, no rounded corners on the creative itself",
+    "The ad is never framed. No outer border, no rounded corners on the creative itself",
     "The type stack and the product cluster occupy separate regions of the frame and never overlap; which region is which is set by the chosen layout archetype",
   ],
   neverDepict: [
@@ -311,8 +311,8 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
   summary:
     "A flat white banner split into a left type stack and a right cluster of " +
     "products standing on white geometric pedestals, annotated with a few thin " +
-    "graphic devices — hairline leader lines to small-caps labels, " +
-    "thin-bordered callout boxes, a solid black eyebrow chip — and closed by a " +
+    "graphic devices (hairline leader lines to small-caps labels, " +
+    "thin-bordered callout boxes, a solid black eyebrow chip) and closed by a " +
     "sharp-cornered CTA that is either a solid black block or a 1px black " +
     "outline.",
   ground: [
@@ -324,7 +324,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
     {
       name: "Labelled range",
       useWhen:
-        "Several SKUs, several concerns, or a range story — and whenever social " +
+        "Several SKUs, several concerns, or a range story, and whenever social " +
         "proof rather than a single specification is the angle.",
       // Deliberately not "tall": four units, two leader lines and two callout
       // boxes cannot be laid out in a 9:16 column without either overlapping
@@ -362,7 +362,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "headline; the headline itself carries the actives and the concentration " +
         "at full headline size, with the product type set beneath in a lighter " +
         "weight; then one or two lines of body copy in which exactly one phrase " +
-        "— the active's name — is set in the product's own colour; then an " +
+        "(the active's name) is set in the product's own colour; then an " +
         "outlined CTA. Right: the product in a flat-lay on white with a smear of " +
         "the formula in a clear glass petri dish, a single raw ingredient, and a " +
         "3D molecule diagram.",
@@ -377,7 +377,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
     {
       name: "Offer block",
       useWhen:
-        "A promotion, bundle or free-product mechanic — conversion and " +
+        "A promotion, bundle or free-product mechanic. Conversion and " +
         "retargeting, where the offer and not the formulation is the message.",
       orientations: ["wide", "square", "tall"],
       stacked:
@@ -389,7 +389,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "heavy uppercase line, then a short thin horizontal rule, then a single " +
         "line stating the mechanic plainly, then a solid black CTA. Right: two or " +
         "three units arranged on white cubic blocks of different heights with " +
-        "soft shadows. No leader lines and no callout boxes — the offer line is " +
+        "soft shadows. No leader lines and no callout boxes: the offer line is " +
         "already the loudest thing in the frame.",
       usesDevices: ["Hairline rule"],
       readingOrder: [
@@ -425,12 +425,12 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
   ],
   typeHierarchy: [
     "Exactly one element is the largest in the frame: the specification inside the headline, or the offer line. Nothing else competes with it",
-    "The specification is never separated out into a badge, a roundel or a caption — it is set as part of the headline sentence",
+    "The specification is never separated out into a badge, a roundel or a caption. It is set as part of the headline sentence",
     "The second headline line drops a weight rather than a size, so the pair still reads as one headline",
     "Eyebrow chip text is roughly a quarter of the headline size, uppercase, letter-spaced",
     "Body copy is one or two lines, regular weight, sentence case, and sits clearly below the headline",
     "Small-caps leader labels and the sub-label under a stat are the smallest type in the frame",
-    "CTA text is body size — never headline size, never the largest thing in the frame",
+    "CTA text is body size. Never headline size, never the largest thing in the frame",
     "Two type weights and one accent-coloured phrase is the whole budget for a creative",
   ],
   props: [
@@ -463,8 +463,8 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
     {
       name: "Single raw ingredient",
       description:
-        "One unit of the named botanical or mineral — one oat grain, one seed, a " +
-        "few crystals — placed on the white, not scattered.",
+        "One unit of the named botanical or mineral: one oat grain, one seed, a " +
+        "few crystals, placed on the white, not scattered.",
       useWhen:
         "When the headline names a natural ingredient. One piece, never a " +
         "handful and never a whole plant.",
@@ -493,7 +493,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
       name: "Outlined rectangle",
       useWhen:
         "Awareness and consideration creatives, and any layout that already " +
-        "carries a solid black chip — two solid black blocks in one frame fight.",
+        "carries a solid black chip. Two solid black blocks in one frame fight.",
       description:
         "A 1px #1A1A1A border on white with sharp 0px corners, black uppercase " +
         "letter-spaced text ('SHOP NOW'). Same footprint as the solid block.",
@@ -506,10 +506,10 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "A 1px hairline running from a specific unit out into the white, ending " +
         "at a short uppercase label that names what that unit is for.",
       useWhen:
-        "A cluster where the units differ by purpose — the device is what turns a " +
+        "A cluster where the units differ by purpose. The device is what turns a " +
         "group shot into a range explanation.",
       rules: [
-        "1px, Hairline grey, straight or one right-angled bend — never curved, never an arrow",
+        "1px, Hairline grey, straight or one right-angled bend. Never curved, never an arrow",
         "Starts at the unit it annotates and ends in empty white, never over the product or the type",
         "Label is one to three words, uppercase, letter-spaced, Graphite, e.g. 'ACNE CONTROL', 'OIL CONTROL'",
         "Two or three per creative. Labelling every unit turns the ad into a diagram",
@@ -525,7 +525,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "Social proof is the angle, and a real review exists to quote. Never with " +
         "invented copy or an invented name.",
       rules: [
-        "1px Hairline border, sharp corners, white fill — no shadow, no rounding, no tint",
+        "1px Hairline border, sharp corners, white fill. No shadow, no rounding, no tint",
         "Overlaps the left edge of the product cluster so type and product read as one composition",
         "Quote is one sentence; the name is italic with 'Verified Buyer' or equivalent set smaller beneath",
         "Stars are a simple flat row, not a graphic badge",
@@ -551,7 +551,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "A small solid black rectangle above the headline carrying two or three " +
         "uppercase words in white.",
       useWhen:
-        "Flagging what is new about this creative — a reformulation, a launch, a " +
+        "Flagging what is new about this creative: a reformulation, a launch, a " +
         "pack change. Not a decoration and not a sale badge.",
       rules: [
         "Solid Ink fill, sharp corners, tight padding, white uppercase letter-spaced text",
@@ -566,7 +566,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "Separating a very large line from the body copy beneath it, where white " +
         "space alone leaves the two reading as one block.",
       rules: [
-        "Short — roughly a third of the type stack's width, not a full-width divider",
+        "Short, roughly a third of the type stack's width, not a full-width divider",
         "1px, Hairline grey, no thickening and no second rule anywhere in the frame",
       ],
     },
@@ -579,7 +579,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
         "The phrase names the active or the thing the pack colour already stands " +
         "for. Otherwise the creative stays entirely Ink and Graphite.",
       rules: [
-        "Exactly one phrase, inside body copy — never the headline, never the CTA, never a fill",
+        "Exactly one phrase, inside body copy. Never the headline, never the CTA, never a fill",
         "The colour is taken from the packaging, never chosen for contrast",
         "If two products of different colours appear, the creative uses no accent at all",
       ],
@@ -590,7 +590,7 @@ export const CREATIVE_GRAMMAR: CreativeGrammar = {
     "At most two devices besides the CTA in one creative. Chip plus leader lines plus both callout boxes is four ideas competing for one second of attention",
     "Every enclosed element in the frame is either a callout box, the chip or the CTA. If something else has acquired a border, remove the border",
     "Every rule and border is 1px. There is no second line weight in this system",
-    "Corners are sharp everywhere — CTA, chip, callout boxes, pedestals",
+    "Corners are sharp everywhere: CTA, chip, callout boxes, pedestals",
   ],
 };
 
@@ -792,7 +792,7 @@ export type BrandMark = "on_pack_only" | "wordmark" | "none";
 
 export const BRAND_MARK_GUIDANCE: Record<BrandMark, string> = {
   on_pack_only:
-    "The brand appears only where it genuinely is — printed on the packaging. " +
+    "The brand appears only where it genuinely is, printed on the packaging. " +
     "The ad account's page name and avatar already carry the brand in the feed, " +
     "so a second lockup is redundant and adds clutter this brand avoids.",
   wordmark:

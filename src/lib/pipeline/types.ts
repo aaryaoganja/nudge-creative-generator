@@ -17,16 +17,56 @@ import { CTA_OPTIONS } from "../../../config/brand.ts";
  *     concrete to check against.
  */
 
+
+/**
+ * Punctuation the product does not use, stripped from every model-authored
+ * string before anything downstream sees it.
+ *
+ * This is a house style rule with teeth. Instructing the model not to write an
+ * em dash works most of the time, and "most of the time" is not a standard: the
+ * failure lands in a headline burned into a 2K PNG, where it cannot be edited
+ * without paying to generate the image again. A transform costs nothing and
+ * cannot be argued with, so it runs rather than the prompt being trusted.
+ *
+ * It rewrites rather than rejects. Blocking a concept over punctuation would
+ * burn a paid brief to fix a comma, and the meaning of every one of these is
+ * preserved by the substitution:
+ *
+ *   "15.6% actives — stated plainly"  ->  "15.6% actives, stated plainly"
+ *   "Six actives—one serum"           ->  "Six actives, one serum"
+ *   "Results…"                        ->  "Results"
+ *
+ * An em dash between two spaces becomes a comma; one with no spaces around it
+ * is joining words and becomes a comma too. An ellipsis is simply dropped: it
+ * is a trailing-off gesture that has no place in a 40-character headline.
+ */
+export function houseStyle(value: string): string {
+  return value
+    .replace(/\s*[\u2014\u2013]\s*/g, ", ")
+    .replace(/\s*\u2026\s*/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/,\s*,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** A string the model wrote, cleaned before it can be rendered or drawn. */
+const modelText = z.string().transform(houseStyle);
+
 export const ConceptSchema = z.object({
-  name: z.string().min(1).max(60),
-  angle: z.string().min(1).max(200),
-  rationale: z.string().min(1).max(400),
+  // Every one of these is rendered: `name` titles the ad card, captions the
+  // lightbox and names the downloaded file; `angle` and `rationale` are shown
+  // under it. All three are the model's prose, so all three are cleaned.
+  name: modelText.pipe(z.string().min(1).max(60)),
+  angle: modelText.pipe(z.string().min(1).max(200)),
+  rationale: modelText.pipe(z.string().min(1).max(400)),
 });
 
 export const CopySchema = z.object({
-  headline: z.string().min(1),
-  subhead: z.string().min(1),
-  primaryText: z.string().min(1),
+  headline: modelText.pipe(z.string().min(1)),
+  subhead: modelText.pipe(z.string().min(1)),
+  primaryText: modelText.pipe(z.string().min(1)),
+  // Not cleaned: it is an enum of strings this repository wrote.
   cta: z.enum(CTA_OPTIONS),
 });
 
@@ -50,8 +90,13 @@ export const ImagePromptSchema = z.object({
   lighting: z.string().min(1),
   palette: z.string().min(1),
   productPlacement: z.string().min(1),
-  /** Exactly what the image model should render as visible text. */
-  textToRender: z.array(z.string()).max(6),
+  /**
+   * Exactly what the image model should render as visible text.
+   *
+   * Cleaned before it is sent, not after: an em dash here is drawn into the
+   * PNG, and there is no editing it out afterwards.
+   */
+  textToRender: z.array(modelText).max(6),
   typography: z.string().min(1),
   /**
    * Concept-specific exclusions only. The brand-wide bans in

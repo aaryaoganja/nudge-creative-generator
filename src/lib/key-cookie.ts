@@ -91,7 +91,7 @@ export function validateKey(input: string): KeyVerdict {
     return { ok: false, message: "Paste a key first." };
   }
   if (key.length > MAX_KEY_LENGTH) {
-    return { ok: false, message: `That is longer than ${MAX_KEY_LENGTH} characters — check you pasted only the key.` };
+    return { ok: false, message: `That is longer than ${MAX_KEY_LENGTH} characters. Check you pasted only the key.` };
   }
   if (!/^[\x21-\x7e]+$/.test(key)) {
     return {
@@ -107,12 +107,16 @@ export function validateKey(input: string): KeyVerdict {
  *
  * Four trailing characters is enough to answer "is this the key I meant?" and
  * useless to anyone who does not already have it. A key too short to mask is
- * shown as nothing rather than as itself.
+ * described rather than shown, because showing three of four characters of a
+ * short secret is showing the secret.
+ *
+ * Worded rather than punctuated. An ellipsis before four digits reads as a
+ * truncation glyph, and this product renders no ellipses and no dashes.
  */
 export function maskKey(key: string | undefined | null): string | null {
   if (!key) return null;
   const trimmed = key.trim();
   if (trimmed.length === 0) return null;
-  if (trimmed.length <= 4) return "…";
-  return `…${trimmed.slice(-4)}`;
+  if (trimmed.length <= 4) return "hidden";
+  return `ending ${trimmed.slice(-4)}`;
 }

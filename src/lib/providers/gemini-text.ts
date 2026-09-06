@@ -247,7 +247,7 @@ export function describeSchemaFailure(
 
   const described = issues.slice(0, 3).map((issue) => {
     const where = (issue.path ?? []).join(".") || "the response";
-    return `${where} — ${issue.message ?? issue.code ?? "invalid"}`;
+    return `${where}: ${issue.message ?? issue.code ?? "invalid"}`;
   });
 
   const more = issues.length > 3 ? ` (and ${issues.length - 3} more)` : "";

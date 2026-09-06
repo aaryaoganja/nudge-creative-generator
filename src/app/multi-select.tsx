@@ -49,7 +49,7 @@ export function PlacementPicker({
 
   return (
     <fieldset className="picker">
-      <legend>Placements — each adds one image per concept</legend>
+      <legend>Placements. Each adds one image per concept.</legend>
       {groups.map((group) => (
         <div className="picker-group" key={group.platform}>
           <p className="picker-platform">{group.label}</p>

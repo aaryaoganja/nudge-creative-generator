@@ -347,7 +347,7 @@ describe("scorer prompt — verification posture", () => {
     const prompt = buildScorerUserPrompt(PLACEMENTS.meta_feed_4x5, null);
     assert.match(prompt, /No product page supplied/);
     assert.match(prompt, /verified: false/);
-    assert.match(prompt, /Unverified —/);
+    assert.match(prompt, /Unverified:/);
     // Must not silently pass or silently fail the unverifiable claims.
     assert.match(prompt, /do NOT assume it is wrong/i);
     assert.match(prompt, /Do NOT assume a claim is correct/i);
@@ -450,5 +450,34 @@ describe("confidence normalisation", () => {
       [],
     );
     assert.equal(verdict, "pass");
+  });
+});
+
+describe("scorer prompt — what the creative was made for", () => {
+  it("says so plainly when no placement was stated", () => {
+    // The panel used to post a hardcoded meta_feed_4x5, so a square creative
+    // was measured against a 4:5 spec nobody had chosen and came back blocked
+    // for a craft failure it had not committed.
+    const prompt = buildScorerUserPrompt(null, null);
+    assert.match(prompt, /Intended placement: not stated/);
+    assert.match(prompt, /do not assume a target aspect ratio/i);
+    assert.ok(!prompt.includes("1080×1350"), prompt.slice(0, 200));
+  });
+
+  it("names the placement when one was stated", () => {
+    const prompt = buildScorerUserPrompt(PLACEMENTS.meta_story_9x16, null);
+    assert.match(prompt, /1080×1920/);
+  });
+
+  it("judges against the objective when one was given", () => {
+    const prompt = buildScorerUserPrompt(null, null, null, "retargeting");
+    assert.match(prompt, /Campaign objective: retargeting/);
+    // The guidance itself, not just the word, or the objective is decoration.
+    assert.match(prompt, /against THAT job/);
+  });
+
+  it("says the objective is unknown rather than assuming one", () => {
+    const prompt = buildScorerUserPrompt(null, null, null, null);
+    assert.match(prompt, /Campaign objective: not stated/);
   });
 });

@@ -76,7 +76,7 @@ export async function GET() {
     database = "unreachable";
     try {
       // Cheapest possible round-trip that proves the pool is actually usable.
-      await getPrisma().$queryRaw`SELECT 1`;
+      await (await getPrisma()).$queryRaw`SELECT 1`;
       database = "reachable";
     } catch (error) {
       databaseError = error instanceof Error ? error.message : String(error);

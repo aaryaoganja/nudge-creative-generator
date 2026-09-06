@@ -202,7 +202,7 @@ describe("renderImagePrompt expands the chosen archetype", () => {
       imagePrompt("Formula callout"),
       PLACEMENTS.meta_feed_4x5,
     );
-    assert.match(rendered, /Layout — Formula callout/);
+    assert.match(rendered, /Layout: Formula callout/);
     assert.ok(rendered.includes("Solid eyebrow chip"));
     assert.ok(rendered.includes("Accent phrase"));
     // Devices belonging to other layouts must not travel with it: the prompt
@@ -230,7 +230,7 @@ describe("renderImagePrompt expands the chosen archetype", () => {
     // The schema takes a string rather than an enum so that renaming a row in
     // config/brand.ts cannot turn every generation into a validation failure.
     const rendered = renderImagePrompt(imagePrompt("Diagonal split"), PLACEMENTS.meta_feed_4x5);
-    assert.ok(!rendered.includes("Layout —"), rendered);
+    assert.ok(!rendered.includes("Layout:"), rendered);
     assert.match(rendered, /Composition: Centred/);
   });
 

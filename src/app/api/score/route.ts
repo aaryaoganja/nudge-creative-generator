@@ -5,7 +5,8 @@ import { FetchRejectedError } from "@/lib/http/safe-fetch";
 import { GeminiTextClient } from "@/lib/providers/gemini-text";
 import { scoreCreative } from "@/lib/pipeline/score";
 import { PLACEMENTS_BY_ID } from "@/lib/pipeline/types";
-import { newRunId, recordRun } from "@/lib/run";
+import { finishRun, newRunId, startRun } from "@/lib/run";
+import { assetUrl, storage } from "@/lib/storage";
 import { readImageMeta } from "@/lib/image/meta";
 import { env } from "@/lib/env";
 import { geminiKeyForRequest } from "@/lib/runtime-key";
@@ -27,6 +28,15 @@ export const maxDuration = 120;
  *
  * Accepts multipart/form-data with an `image` file, or JSON with a base64
  * `image` field.
+ *
+ * `placementId` and `objective` are also optional, and their absence is
+ * handled rather than papered over. The panel used to post a hardcoded
+ * `meta_feed_4x5`, so a perfectly good 1080x1080 square was measured against a
+ * 1080x1350 spec nobody had chosen, failed the deterministic ratio check, and
+ * came back "blocked" with a craft failure the creative had not committed.
+ * Omitting the placement now means the format and byte-cap checks still run
+ * while the size and aspect checks are skipped, because there is no intended
+ * shape to check against.
  */
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -35,8 +45,25 @@ const ACCEPTED = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
 interface ParsedInput {
   bytes: Uint8Array;
   mimeType: string;
+  fileName: string | null;
   productUrl: string | null;
-  placementId: string;
+  /** null means "not stated", which is different from meta_feed_4x5. */
+  placementId: string | null;
+  objective: string | null;
+}
+
+const OBJECTIVES = ["awareness", "consideration", "conversion", "retargeting"];
+
+function readObjective(value: unknown): string | null {
+  return typeof value === "string" && OBJECTIVES.includes(value) ? value : null;
+}
+
+/** Empty string, "any" and "unknown" all mean the user declined to say. */
+function readPlacementId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "any" || trimmed === "unknown") return null;
+  return trimmed;
 }
 
 async function parseInput(request: Request): Promise<ParsedInput | { error: string }> {
@@ -52,13 +79,13 @@ async function parseInput(request: Request): Promise<ParsedInput | { error: stri
       return { error: `Image exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024}MB limit.` };
     }
     const productUrl = form.get("productUrl");
-    const placementId = form.get("placementId");
     return {
       bytes: new Uint8Array(await file.arrayBuffer()),
       mimeType: file.type || "image/png",
+      fileName: file.name || null,
       productUrl: typeof productUrl === "string" && productUrl.trim() ? productUrl.trim() : null,
-      placementId:
-        typeof placementId === "string" && placementId ? placementId : "meta_feed_4x5",
+      placementId: readPlacementId(form.get("placementId")),
+      objective: readObjective(form.get("objective")),
     };
   }
 
@@ -89,12 +116,13 @@ async function parseInput(request: Request): Promise<ParsedInput | { error: stri
   return {
     bytes,
     mimeType,
+    fileName: typeof body.fileName === "string" ? body.fileName : null,
     productUrl:
       typeof body.productUrl === "string" && body.productUrl.trim()
         ? body.productUrl.trim()
         : null,
-    placementId:
-      typeof body.placementId === "string" ? body.placementId : "meta_feed_4x5",
+    placementId: readPlacementId(body.placementId),
+    objective: readObjective(body.objective),
   };
 }
 
@@ -111,19 +139,25 @@ export async function POST(request: Request) {
     );
   }
 
-  // Sniff the header rather than trusting the declared type.
+  // Sniff the header rather than trusting the declared type. WebP is read and
+  // scored; the placement check is what tells the user Meta will not take it.
   const meta = readImageMeta(parsed.bytes);
   if (meta.format === "unknown") {
     return NextResponse.json(
-      { error: "File does not appear to be a PNG or JPEG image." },
+      { error: "That file does not look like a PNG, JPEG or WebP image." },
       { status: 422 },
     );
   }
 
-  const placement = PLACEMENTS_BY_ID[parsed.placementId];
-  if (!placement) {
+  const placement = parsed.placementId
+    ? (PLACEMENTS_BY_ID[parsed.placementId] ?? null)
+    : null;
+  if (parsed.placementId && !placement) {
     return NextResponse.json(
-      { error: `Unknown placement "${parsed.placementId}"`, available: Object.keys(PLACEMENTS_BY_ID) },
+      {
+        error: `Unknown placement "${parsed.placementId}".`,
+        available: Object.keys(PLACEMENTS_BY_ID),
+      },
       { status: 422 },
     );
   }
@@ -140,6 +174,25 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
+
+  const runId = newRunId("scoring");
+  const runInputs: Record<string, unknown> = {
+    placementId: placement?.id ?? null,
+    objective: parsed.objective,
+    productUrl: parsed.productUrl,
+    fileName: parsed.fileName,
+    mimeType: parsed.mimeType,
+    bytes: parsed.bytes.byteLength,
+    dimensions:
+      meta.width && meta.height ? `${meta.width}x${meta.height}` : null,
+  };
+  await startRun({
+    id: runId,
+    kind: "scoring",
+    subject: parsed.fileName ?? "Uploaded creative",
+    productUrl: parsed.productUrl,
+    inputs: runInputs,
+  });
 
   let snapshot: ProductSnapshot | null = null;
   let pageMarkdown: string | null = null;
@@ -176,40 +229,76 @@ export async function POST(request: Request) {
       placement,
       snapshot,
       pageMarkdown,
+      objective: parsed.objective as never,
     });
 
-    const runId = newRunId("scoring");
-    recordRun({
-      id: runId,
-      kind: "scoring",
-      startedAt: new Date().toISOString(),
-      summary: `${result.overall}/100 · ${result.verdict.replace("_", " ")}`,
-      subject: snapshot?.title ?? "Uploaded creative",
-      costUsd: result.usage.costUsd,
-      outcome: result.verdict,
-      detail: {
-        placementId: placement.id,
-        productVerified: result.productVerified,
-        dimensionScores: result.dimensionScores,
-        findingCount: result.findings.length,
-      },
+    /*
+     * Keep the reviewed creative, so a shared score shows the thing it is
+     * about. A score without its image is a page of findings about a picture
+     * nobody else can see.
+     */
+    const stored = await storage().put(parsed.bytes, {
+      mimeType: parsed.mimeType,
+      width: meta.width,
+      height: meta.height,
     });
 
-    return NextResponse.json({
-      runId,
+    /*
+     * The note has to say which of three situations applies. It used to claim
+     * "no product URL supplied" even when one was supplied and the fetch had
+     * failed, which told the user to do the thing they had already done.
+     */
+    const note = result.productVerified
+      ? null
+      : parsed.productUrl
+        ? "The product page could not be read, so product-specific claims could not be verified. Check the URL and score again."
+        : "No product URL was supplied, so product-specific claims could not be verified. Add the product URL to check concentrations, price and packaging against the live page.";
+
+    const payload = {
+      stage: "scored" as const,
       ...result,
       placement,
+      objective: parsed.objective,
+      image: {
+        url: stored ? assetUrl(stored.sha256) : null,
+        mimeType: parsed.mimeType,
+        width: meta.width,
+        height: meta.height,
+        bytes: parsed.bytes.byteLength,
+        fileName: parsed.fileName,
+      },
       product: snapshot
         ? { title: snapshot.title, url: snapshot.sourceUrl }
         : null,
       productUrlWarning,
-      note: result.productVerified
-        ? null
-        : "No product URL supplied, so product-specific claims could not be verified. Supply the product URL to check concentrations, price and packaging against the live page.",
+      note,
+    };
+
+    await finishRun({
+      id: runId,
+      status: result.verdict === "blocked" ? "blocked" : "ok",
+      summary: `${result.overall}/100, ${result.verdict.replace("_", " ")}`,
+      subject: snapshot?.title ?? parsed.fileName ?? "Uploaded creative",
+      productUrl: snapshot?.sourceUrl ?? parsed.productUrl,
+      costUsd: result.usage.costUsd,
+      inputs: runInputs,
+      payload,
+      assetShas: stored ? [stored.sha256] : [],
     });
+
+    return NextResponse.json({ runId, ...payload });
   } catch (error) {
+    await finishRun({
+      id: runId,
+      status: "failed",
+      summary: "Scoring failed",
+      subject: parsed.fileName ?? "Uploaded creative",
+      costUsd: 0,
+      inputs: runInputs,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Scoring failed" },
+      { runId, error: error instanceof Error ? error.message : "Scoring failed" },
       { status: 502 },
     );
   }

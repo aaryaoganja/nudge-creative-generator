@@ -4,6 +4,7 @@ import { ShopifyClient, ShopifyFetchError } from "@/lib/scrape/shopify";
 import { parseProductUrl } from "@/lib/scrape/product-url";
 import { FetchRejectedError } from "@/lib/http/safe-fetch";
 import { claimsFrom, PLACEMENTS } from "@/lib/pipeline/types";
+import { finishRun, newRunId, startRun } from "@/lib/run";
 import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,13 @@ export const dynamic = "force-dynamic";
  * Returns what we understood from the page so a human can check it before
  * anything is generated. Deliberately surfaces the claim-bearing values
  * separately, because those are the regulated numbers that will be printed.
+ *
+ * This is also where a run gets its identity. The id is minted here, on the
+ * free step, rather than at generation, because that is the moment the user has
+ * something on screen worth sending to somebody: the address bar carries
+ * ?run=gen_... from the first click, and generating fills that same run in
+ * rather than opening a second one. Minting at generation would mean the link
+ * only appeared after the money was spent.
  */
 
 const RequestSchema = z.object({ url: z.string().min(1).max(2000) });
@@ -47,16 +55,47 @@ export async function POST(request: Request) {
     );
   }
 
+  const runId = newRunId("generation");
+
   try {
     const client = new ShopifyClient({
       allowedHosts,
       currency: env().STORE_CURRENCY,
     });
     const snapshot = await client.fetchProduct(parsed.data.url);
+    const claims = claimsFrom(snapshot);
+
+    await startRun({
+      id: runId,
+      kind: "generation",
+      subject: snapshot.title,
+      productUrl: snapshot.sourceUrl,
+      // `stage` is carried in inputs rather than payload because the history
+      // list deliberately does not select payload, and a run that was only read
+      // must not be labelled "generated" in that list.
+      inputs: { stage: "resolved", url: parsed.data.url, canonical: verdict.canonical },
+    });
+
+    // Recorded as a finished run in its own right, so a link copied at the
+    // confirmation step opens on the confirmation step rather than on nothing.
+    // Generating later overwrites this payload with the full result.
+    await finishRun({
+      id: runId,
+      status: "ok",
+      summary: `Read ${snapshot.title}`,
+      costUsd: 0,
+      payload: {
+        stage: "resolved",
+        snapshot,
+        claims,
+        canonical: verdict.canonical,
+      },
+    });
 
     return NextResponse.json({
+      runId,
       snapshot,
-      claims: claimsFrom(snapshot),
+      claims,
       canonical: verdict.canonical,
       placements: Object.values(PLACEMENTS),
     });

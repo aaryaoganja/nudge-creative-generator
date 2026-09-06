@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree, Outfit } from "next/font/google";
 import "./globals.css";
-import { Nav } from "./nav";
 
 /*
  * Outfit for display, Figtree for body — the two faces the client's own site
@@ -47,10 +46,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${outfit.variable} ${figtree.variable}`}>
-      <body>
-        <Nav />
-        {children}
-      </body>
+      {/*
+        No <Nav> here. It needs to know which view the URL selects, which a
+        server layout cannot read, and it must not appear on the login page at
+        all. The pages that know those answers mount it themselves.
+      */}
+      <body>{children}</body>
     </html>
   );
 }

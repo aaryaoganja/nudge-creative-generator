@@ -1,27 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { BrandLockup, type BrandLockupClasses } from "./brand-lockup";
+import { VIEWS, VIEW_LABELS, viewHref, type View } from "./view";
 
 /**
- * Top navigation — the one piece of chrome on every route behind the gate.
+ * Top navigation, and the view switcher.
  *
- * It carries only real navigations. An earlier version also rendered Generate
- * and Score as `#generate` / `#score` anchors, which pointed at ids that do not
- * exist anywhere in the app: clicking them changed the URL and nothing else,
- * while the working tab strip sat twenty pixels below in the masthead. Two tab
- * strips, one of them dead, is worse than one — so the view switch stays where
- * the state lives (src/app/page.tsx) and this bar stops pretending to own it.
+ * The switcher lives here rather than in the page because that is where the
+ * supplied design puts it, and because it is the only control on screen that is
+ * true of every view. It is a segmented control of real links: each one is a URL
+ * a person can bookmark, open in a new tab or send to someone, which a set of
+ * buttons holding React state is not.
+ *
+ * An earlier version of this bar carried Generate and Score as `#generate` and
+ * `#score` anchors pointing at ids that existed nowhere, twenty pixels above
+ * the working tab strip. Every link here now goes somewhere real.
  */
-
-/**
- * The login page draws its own centred branding and must not sit under a bar
- * that links to pages the visitor cannot open. The root layout is a server
- * component and cannot read the path, so the decision is made here.
- */
-const BARE_ROUTES = new Set(["/login"]);
 
 const NAV_LOCKUP: BrandLockupClasses = {
   root: "topnav-lockup",
@@ -32,28 +28,64 @@ const NAV_LOCKUP: BrandLockupClasses = {
   fallback: "topnav-logo-fallback",
 };
 
-export function Nav() {
-  const pathname = usePathname();
+export interface NavProps {
+  /**
+   * The view currently on screen. Present only on the studio, where the
+   * switcher belongs; on /keys it would be three links that all navigate away
+   * from the page you are reading.
+   */
+  view?: View;
+  /** Marks the API key link when that is the page you are on. */
+  current?: "keys";
+}
 
-  if (BARE_ROUTES.has(pathname)) return null;
+/**
+ * Rendered by the pages that want it, not by the root layout.
+ *
+ * The layout is a server component and cannot see which view the URL selects,
+ * and the login page must not sit under a bar linking to pages a signed-out
+ * visitor cannot open. Both problems disappear when the component that knows
+ * the answer is the one that mounts the bar.
+ */
+export function Nav({ view, current }: NavProps) {
+  const onStudio = view !== undefined;
 
   return (
     <header className="topnav">
       <div className="topnav-inner">
-        <Link className="topnav-brand" href="/" aria-label="Ad Studio by Nudge — home">
+        <Link className="topnav-brand" href="/" aria-label="Ad Studio by Nudge, home">
           <BrandLockup classes={NAV_LOCKUP} />
         </Link>
 
-        <nav className="topnav-links" aria-label="Primary">
+        {onStudio && (
+          <nav className="switcher" aria-label="Studio view">
+            {VIEWS.map((id) => (
+              <Link
+                key={id}
+                className={`switcher-tab${view === id ? " on" : ""}`}
+                href={viewHref({ view: id, runId: null })}
+                aria-current={view === id ? "page" : undefined}
+                // The whole view swaps, so a client-side transition would
+                // repaint everything anyway. scroll:false keeps the page where
+                // the user left it rather than jumping to the top.
+                scroll={false}
+              >
+                {VIEW_LABELS[id]}
+              </Link>
+            ))}
+          </nav>
+        )}
+
+        <div className="topnav-links">
           <Link
             className="topnav-link"
             href="/keys"
-            aria-current={pathname === "/keys" ? "page" : undefined}
+            aria-current={current === "keys" ? "page" : undefined}
           >
             API key
           </Link>
           <SignOut />
-        </nav>
+        </div>
       </div>
     </header>
   );
@@ -63,7 +95,7 @@ export function Nav() {
  * Sign out, reachable from every page rather than only from /keys.
  *
  * A gate you can enter but not leave is a gate with one working half. POST
- * because the endpoint is POST-only — with SameSite=Lax that is what stops
+ * because the endpoint is POST-only: with SameSite=Lax that is what stops
  * another site signing this browser out with an image tag.
  */
 function SignOut() {
@@ -84,14 +116,14 @@ function SignOut() {
          * re-renders a signed-in page from memory looks exactly like a gate
          * that did not close. router.refresh() races the replace and is not a
          * guarantee. The lint rule below prefers the router for internal
-         * destinations — correct in general, wrong for the one navigation
-         * whose entire purpose is to discard client state.
+         * destinations, which is correct in general and wrong for the one
+         * navigation whose entire purpose is to discard client state.
          */
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign("/login");
       }}
     >
-      {busy ? "Signing out…" : "Sign out"}
+      {busy ? "Signing out" : "Sign out"}
     </button>
   );
 }

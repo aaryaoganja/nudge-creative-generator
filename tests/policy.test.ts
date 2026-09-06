@@ -201,3 +201,70 @@ describe("verdict is separate from severity mix", () => {
     assert.equal(verdictFor([]), "pass");
   });
 });
+
+describe("an offer the operator typed is an authorised claim", () => {
+  /**
+   * The prompt tells the model to print the offer "verbatim". The gate used to
+   * have never heard of it, so obeying that instruction produced a blocking
+   * invented-percentage finding and the concept was dropped before any image
+   * was generated. The model's only other option was to silently drop the
+   * number the marketer typed. Both broke the promise on the field's label.
+   */
+  it("permits a percentage that appears in the offer", () => {
+    const withOffer = brief({ headline: "20% off this week" });
+
+    // Without the offer, this is exactly the invented claim the gate exists for.
+    const unauthorised = checkPolicy(withOffer, CLAIMS);
+    assert.equal(unauthorised.verdict, "blocked");
+    assert.ok(
+      unauthorised.findings.some((f) => f.ruleId === "invented-percentage"),
+    );
+
+    // With it, the same copy is legitimate.
+    const authorised = checkPolicy(withOffer, CLAIMS, {
+      offer: "20% off this week",
+    });
+    assert.ok(
+      !authorised.findings.some((f) => f.ruleId === "invented-percentage"),
+      JSON.stringify(authorised.findings),
+    );
+  });
+
+  it("permits a rupee figure that appears in the offer", () => {
+    const copy = brief({ primaryText: "Free shipping over ₹499." });
+    assert.equal(checkPolicy(copy, CLAIMS).verdict, "blocked");
+    assert.ok(
+      !checkPolicy(copy, CLAIMS, { offer: "Free shipping over ₹499" }).findings.some(
+        (f) => f.ruleId === "invented-price",
+      ),
+    );
+  });
+
+  it("matches a comma-formatted offer against the copy's plain figure", () => {
+    // The scanner normalises "₹1,499" to "₹1499", so the allow-list has to be
+    // normalised the same way or an authorised figure still blocks.
+    const copy = brief({ primaryText: "Yours for ₹1499." });
+    assert.ok(
+      !checkPolicy(copy, CLAIMS, { offer: "Bundle at ₹1,499" }).findings.some(
+        (f) => f.ruleId === "invented-price",
+      ),
+    );
+  });
+
+  it("authorises only the exact figures typed, never their neighbours", () => {
+    // A 20% offer must not become licence to write 25%. The gate widens by
+    // literal, not by pattern.
+    const copy = brief({ headline: "25% off this week" });
+    const result = checkPolicy(copy, CLAIMS, { offer: "20% off this week" });
+    assert.equal(result.verdict, "blocked");
+    assert.ok(result.findings.some((f) => f.evidence === "25%"));
+  });
+
+  it("changes nothing when there is no offer", () => {
+    const copy = brief({ headline: "15.6% actives, stated plainly" });
+    assert.deepEqual(
+      checkPolicy(copy, CLAIMS).findings,
+      checkPolicy(copy, CLAIMS, { offer: null }).findings,
+    );
+  });
+});

@@ -73,7 +73,7 @@ export function LoginForm({ next }: { next: string }) {
       />
 
       <button className={styles.button} type="submit" disabled={busy || !password}>
-        {busy ? "Checking…" : "Enter"}
+        {busy ? "Checking" : "Enter"}
       </button>
 
       {error && (

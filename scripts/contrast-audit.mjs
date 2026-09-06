@@ -134,8 +134,16 @@ async function audit(label) {
 await page.goto(BASE, { waitUntil: "networkidle" });
 await audit("login");
 
-await page.fill("#password", PASSWORD);
-await page.click('button[type="submit"]');
+// Refill until the button enables: fill() before hydration sets the DOM value
+// without firing the handler React is listening for.
+const submit = page.locator('button[type="submit"]');
+for (let attempt = 0; attempt < 40; attempt += 1) {
+  await page.fill("#password", "");
+  await page.fill("#password", PASSWORD);
+  if (await submit.isEnabled()) break;
+  await page.waitForTimeout(250);
+}
+await submit.click();
 await page.waitForSelector(".shell", { timeout: 20000 });
 await audit("generate (empty)");
 
@@ -149,16 +157,20 @@ await page.waitForSelector(".adcard", { timeout: 90000 });
 await page.locator("details summary").first().click();
 await audit("results");
 
-await page.locator('[role="tab"]', { hasText: "Score" }).click();
+await page.locator(".switcher-tab", { hasText: "Score" }).click();
 await page.waitForSelector("#file", { timeout: 10000 });
 await audit("score");
+
+await page.goto(`${BASE}/?view=history`, { waitUntil: "networkidle" });
+await page.waitForTimeout(800);
+await audit("history");
 
 await page.goto(`${BASE}/keys`, { waitUntil: "networkidle" });
 await audit("keys");
 
 await browser.close();
 
-console.log(`\n${measured} text elements measured across 6 views\n`);
+console.log(`\n${measured} text elements measured across 7 views\n`);
 
 if (exempt.length > 0) {
   console.log("Exempt (disabled controls — WCAG does not require contrast):");

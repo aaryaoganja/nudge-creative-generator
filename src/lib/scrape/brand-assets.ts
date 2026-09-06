@@ -125,7 +125,7 @@ export async function extractBrandAssets(
 
   if (fonts.length === 0) {
     warnings.push(
-      "No @font-face rules found. The theme may load fonts from a font CDN — check the stylesheet list.",
+      "No @font-face rules found. The theme may load fonts from a font CDN, so check the stylesheet list.",
     );
   }
   if (colours.length === 0) {

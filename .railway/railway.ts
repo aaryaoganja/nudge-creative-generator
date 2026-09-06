@@ -36,20 +36,29 @@ export default defineRailway((ctx) => {
     // A Dockerfile is present at the repo root, so Railway builds with it and
     // no build/start command is needed here — the image's CMD runs the server.
 
-    // Must match src/app/api/health/route.ts. That route deliberately does NOT
-    // fail on an unreachable database: no user-facing route queries Postgres
-    // yet, and a 503 over an unused dependency would make Railway withhold
-    // traffic from a perfectly working UI.
+    // Must match src/app/api/health/route.ts. That route still does NOT fail on
+    // an unreachable database, even now that run history is a Postgres table.
+    // The reasoning has changed rather than gone away: without Postgres the app
+    // degrades to in-memory history and says so in the UI, so every paid
+    // feature still works. Failing the probe would take a mostly-working
+    // deployment out of rotation over a feature that has already handled its
+    // own absence.
     healthcheck: "/api/health",
     healthcheckTimeout: 60,
 
-    // No preDeploy migration yet, on purpose. `prisma migrate deploy` exits
-    // non-zero without a reachable DATABASE_URL, and a failing preDeploy aborts
-    // the whole deployment — so a schema that nothing currently reads would be
-    // able to take the UI down. Restore it in the same change that introduces
-    // the first route which actually queries Postgres:
+    // Migrations run before traffic shifts. This was deliberately commented out
+    // while nothing read Postgres, with the instruction to restore it in the
+    // same change that introduced the first route which actually queries it.
+    // That change is this one: runs and run_assets are created by
+    // prisma/migrations/20260905230519_runs_and_assets, and without this line
+    // those tables would simply not exist here. The failure would not be loud:
+    // the deploy would succeed, the health check would pass, and every write to
+    // history would throw at request time on both replicas.
     //
-    //   preDeploy: "node node_modules/prisma/build/index.js migrate deploy",
+    // The full path is deliberate. Next's standalone output prunes node_modules
+    // to what the app imports at runtime and nothing imports the Prisma CLI, so
+    // the Dockerfile copies it in explicitly for exactly this command.
+    preDeploy: "node node_modules/prisma/build/index.js migrate deploy",
 
     replicas: prod ? 2 : 1,
 

@@ -135,28 +135,37 @@ async function run(theme) {
 
   if (primary) {
     check("password opens the app", new URL(page.url()).pathname === "/");
-    check("landing renders", (await page.locator("h1").innerText()) === "Minimalist");
-    check("both tabs present", (await page.locator('[role="tab"]').count()) === 2);
 
-    // ── top nav ───────────────────────────────────────────────────────────
+    // ── top nav and the view switcher ─────────────────────────────────────
     check("one banner landmark", (await page.locator("header.topnav").count()) === 1);
     check(
       "nav carries the Ad Studio by Nudge lockup",
       (await page.locator(".topnav-wordmark").innerText()) === "Ad Studio" &&
         (await page.locator(".topnav-by").innerText()) === "by",
     );
-    // Every nav link must go somewhere real. The bar used to carry
-    // href="#generate" / "#score" anchors pointing at ids that do not exist.
-    const navHrefs = await page
-      .locator(".topnav a")
+    const lockupSize = await page
+      .locator(".topnav-wordmark")
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    check("the lockup is not tiny", lockupSize >= 20, `${lockupSize}px`);
+
+    check("three views offered", (await page.locator(".switcher-tab").count()) === 3);
+    // Every switcher entry is a real URL, so a view can be bookmarked and sent.
+    const viewHrefs = await page
+      .locator(".switcher-tab")
       .evaluateAll((els) => els.map((el) => el.getAttribute("href")));
     check(
-      "no dead nav anchors",
-      navHrefs.every((href) => href && !href.startsWith("#")),
-      navHrefs.join(" "),
+      "views are links, not buttons",
+      viewHrefs.every((h) => h && !h.startsWith("#")),
+      viewHrefs.join(" "),
     );
+    check("no dead nav anchors", (await page.locator('.topnav a[href^="#"]').count()) === 0);
     check("sign out reachable from every page", (await page.locator(".topnav button").count()) === 1);
-    check("only one tab strip", (await page.locator('[role="tablist"]').count()) === 1);
+    check("only one view switcher", (await page.locator(".switcher").count()) === 1);
+    check(
+      "one h1 on the page",
+      (await page.locator("h1").count()) === 1,
+      await page.locator("h1").innerText(),
+    );
 
     // A collection URL must be refused in the UI, with an actionable message.
     await page.fill("#url", "https://beminimalist.co/collections/skin");
@@ -171,6 +180,37 @@ async function run(theme) {
   await page.click('button.primary[type="submit"]');
   await page.waitForSelector(".claimbar", { timeout: 20000 });
   await page.screenshot({ path: `${OUT}/03-confirm-${theme}.png`, fullPage: true });
+
+  // ── the shareable link ──────────────────────────────────────────────────
+  const runUrl = new URL(page.url());
+  const runId = runUrl.searchParams.get("run");
+  if (primary) {
+    // Minted on the FREE read, not after generation: the whole point is having
+    // something to send somebody before any money is spent.
+    check(
+      "reading a product puts a run id in the address bar",
+      /^gen_[0-9a-f]{20}$/.test(runId ?? ""),
+      page.url(),
+    );
+    check("the id is shown, not just in the URL", (await page.locator(".sharebar .runid").innerText()) === runId);
+    check("a copy-link affordance exists", (await page.locator(".sharebar button").count()) === 1);
+
+    // The defaults that make Generate the next click.
+    check(
+      "offer is seeded from the product's own discount",
+      /%\s*off/.test(await page.locator("#offer").inputValue()),
+      await page.locator("#offer").inputValue(),
+    );
+    check(
+      "angle is preselected",
+      (await page.locator("#angle").inputValue()).length > 0,
+      await page.locator("#angle").inputValue(),
+    );
+    check(
+      "the seeded angle shows as a selected chip",
+      (await page.locator(".chip.on").count()) >= 1,
+    );
+  }
 
   if (primary) {
     check(
@@ -190,16 +230,19 @@ async function run(theme) {
     const placementCount = await page.locator(".picker-item").count();
     check("placement picker lists every size once", placementCount === 6, `${placementCount} placements`);
     check("grouped by platform", (await page.locator(".picker-group").count()) === 2);
-    // The label already names the surfaces for Meta, so repeating them below it
-    // is a stutter — the surface line is Google's, where it adds a fact.
-    check(
-      "no label/surface stutter on Meta rows",
-      (await page
-        .locator(".picker-group")
-        .first()
-        .locator(".picker-note:not(.dim)")
-        .count()) === 0,
+    // The surface line earns its place only when it says something the label
+    // does not. Labels are short now ("Meta Feed"), so it does, and the check
+    // is that it never simply repeats the label back.
+    const stutter = await page.evaluate(() =>
+      [...document.querySelectorAll(".picker-item")]
+        .map((item) => ({
+          label: item.querySelector(".picker-label")?.firstChild?.textContent?.trim() ?? "",
+          note: item.querySelector(".picker-note:not(.dim)")?.textContent?.trim() ?? "",
+        }))
+        .filter((row) => row.note && row.label.toLowerCase().includes(row.note.toLowerCase()))
+        .map((row) => `${row.label} / ${row.note}`),
     );
+    check("no label repeated as its own surface line", stutter.length === 0, stutter.join(" | "));
     check(
       "opens on the two placements a marketer actually buys",
       (await page.locator(".picker-item.on").count()) === 2,
@@ -209,6 +252,13 @@ async function run(theme) {
     check(
       "another placement selectable",
       (await page.locator(".picker-item.on").count()) === 3,
+    );
+    check(
+      "placement labels stay short",
+      (await page.locator(".picker-label").allInnerTexts()).every(
+        (t) => t.split("\n")[0].length <= 30,
+      ),
+      (await page.locator(".picker-label").allInnerTexts()).map((t) => t.split("\n")[0]).join(" | "),
     );
     check(
       "mixed-platform copy limits warned",
@@ -316,7 +366,7 @@ async function run(theme) {
     await page.screenshot({ path: `${OUT}/05-prompt-open.png`, fullPage: true });
   }
 
-  await page.locator('[role="tab"]', { hasText: "Score" }).click();
+  await page.locator(".switcher-tab", { hasText: "Score" }).click();
   await page.waitForSelector("#file", { timeout: 10000 });
 
   const fixture = process.env.SCORE_FIXTURE;
@@ -347,15 +397,50 @@ async function run(theme) {
     check("scorer form reachable", await page.locator("#file").isVisible());
   }
 
+  // ── the link actually opens ─────────────────────────────────────────────
+  if (primary && runId) {
+    const fresh = await context.newPage();
+    await fresh.goto(`${BASE}/?run=${runId}`, { waitUntil: "networkidle" });
+    await fresh.waitForSelector(".claimbar", { timeout: 20000 });
+    check(
+      "a shared run link redraws the product it was for",
+      (await fresh.locator("#e-title").inputValue()).length > 0,
+      await fresh.locator("#e-title").inputValue(),
+    );
+    check(
+      "and the creatives it produced",
+      (await fresh.locator(".adcard").count()) > 0,
+      `${await fresh.locator(".adcard").count()} cards`,
+    );
+    // Served from storage, not re-inlined as base64 into the page.
+    const src = await fresh.locator("img.ad-image").first().getAttribute("src");
+    check("images come from the asset store", (src ?? "").startsWith("/api/assets/"), src ?? "");
+    await fresh.screenshot({ path: `${OUT}/08-shared-run.png`, fullPage: true });
+    await fresh.close();
+  }
+
+  // ── history ─────────────────────────────────────────────────────────────
+  if (primary) {
+    await page.goto(`${BASE}/?view=history`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".runrow", { timeout: 15000 });
+    check("history lists the run", (await page.locator(".runrow").count()) >= 1);
+    check(
+      "each row links to its own run",
+      (await page.locator(".runrow-open").first().getAttribute("href"))?.startsWith("/?run=") ?? false,
+    );
+    await page.screenshot({ path: `${OUT}/09-history.png`, fullPage: true });
+  }
+
   // ── /keys ───────────────────────────────────────────────────────────────
   if (primary) {
+    await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
     await page.locator('.topnav a[href="/keys"]').click();
     await page.waitForSelector("#gemini-key", { timeout: 10000 });
     check("nav reaches the key page", new URL(page.url()).pathname === "/keys");
     check(
-      "current key source is stated",
-      (await page.locator("[class*=statusRow]").innerText()).length > 0,
-      (await page.locator("[class*=statusRow]").innerText()).replace(/\s+/g, " "),
+      "the key page is one field and one button",
+      (await page.locator("[class*=statusRow]").count()) === 0 &&
+        (await page.locator("#gemini-key").count()) === 1,
     );
     // Shape validation happens before anything is sealed into a cookie.
     await page.fill("#gemini-key", "has a space in it");
@@ -366,27 +451,62 @@ async function run(theme) {
       "a malformed key is refused",
       /space|line break/i.test(await keyError.innerText()),
     );
-    // A key that passes the shape check is accepted and reported back masked —
+    // A key that passes the shape check is accepted and reported back masked,
     // never echoed. This one is syntactically fine and functionally worthless,
     // which is the point: /keys must not spend a request to find out.
     await page.fill("#gemini-key", "AIzaSyUiSmokeNotARealKey0000000000000000");
     await page.locator("button", { hasText: "Use this key" }).click();
     await page.locator('p[role="status"]').waitFor({ timeout: 10000 });
-    const status = await page.locator("[class*=statusRow]").innerText();
-    check("override takes effect", /your key/i.test(status), status.replace(/\s+/g, " "));
-    check("only the last four characters are shown", /…\w{4}/.test(status));
+    const status = await page.locator("#key-help").innerText();
+    check("override takes effect", /in use/i.test(status), status.replace(/\s+/g, " "));
+    check("only the last four characters are shown", /0000/.test(status), status);
     check(
       "the key itself never reaches the page",
       !(await page.content()).includes("AIzaSyUiSmokeNotARealKey0000000000000000"),
     );
     await page.screenshot({ path: `${OUT}/07-keys.png`, fullPage: true });
     // Put the deployment's key back, or every later run inherits a dud.
-    await page.locator("button", { hasText: "Clear override" }).click();
-    await page.waitForTimeout(500);
+    await page.locator("button", { hasText: "Clear" }).click();
+    await page.waitForTimeout(700);
     check(
-      "override clears back to the environment key",
-      /environment|no key/i.test(await page.locator("[class*=statusRow]").innerText()),
+      "override clears back to the configured key",
+      (await page.locator("button", { hasText: "Clear" }).count()) === 0,
     );
+  }
+
+  // ── house style, measured on the rendered page ──────────────────────────
+  if (primary) {
+    for (const view of ["", "?view=score", "?view=history"]) {
+      await page.goto(`${BASE}/${view}`, { waitUntil: "networkidle" });
+      // Every visible word, including placeholders and button labels, which a
+      // source grep misses because they are attributes rather than text nodes.
+      const dashes = await page.evaluate(() => {
+        const bad = [];
+        const seen = new Set();
+        for (const el of document.querySelectorAll("body *")) {
+          const strings = [
+            ...[...el.childNodes]
+              .filter((n) => n.nodeType === Node.TEXT_NODE)
+              .map((n) => n.textContent ?? ""),
+            el.getAttribute("placeholder") ?? "",
+            el.getAttribute("aria-label") ?? "",
+            el.getAttribute("title") ?? "",
+          ];
+          for (const s of strings) {
+            if (/[\u2014\u2013\u2026]/.test(s) && !seen.has(s)) {
+              seen.add(s);
+              bad.push(s.trim().slice(0, 70));
+            }
+          }
+        }
+        return bad;
+      });
+      check(
+        `no em dash rendered on /${view || "generate"}`,
+        dashes.length === 0,
+        dashes.join(" | "),
+      );
+    }
   }
 
   await context.close();
