@@ -10,7 +10,7 @@ Railway. One model provider: Gemini 3.7 Flash writes and scores, Nano Banana Pro
 
 ## The fast path: the hosted app
 
-    URL:      <PASTE THE RAILWAY URL HERE>
+    URL:      https://nudge-creative-generator-production.up.railway.app
     Password: NUDGE
 
 The whole app sits behind one password because everything behind it spends a
