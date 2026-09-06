@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Failure modes</title>
+<style>
+  /*
+   * Print source for docs/03-FAILURE-MODES.md.
+   *
+   * Same masthead, type scale and palette as the decision doc, so the two read
+   * as one submission. Single column rather than two, because this document has
+   * no page cap and its structure is nested: each failure has four labelled
+   * parts, and two of them carry a table or a numbered list. Two columns would
+   * buy density this document does not need and break those blocks across a
+   * column boundary, which is the one thing that would make it harder to read.
+   */
+  @page { size: A4; margin: 16mm 17mm; }
+  @page :first { margin-top: 14mm; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    font: 10.2pt/1.5 Georgia, "Times New Roman", serif;
+    color: #14171a;
+    background: #fff;
+    max-width: 62em;
+  }
+
+  .masthead {
+    border-bottom: 1.5pt solid #14171a;
+    padding-bottom: 6pt;
+    margin-bottom: 12pt;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12pt;
+  }
+  h1 {
+    font: 700 17pt/1.1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: -0.3pt;
+    margin: 0;
+  }
+  .kicker {
+    font: 600 8pt/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: #5a6572;
+    white-space: nowrap;
+  }
+
+  /* The failure itself. Numbered, because the summary table refers back. */
+  h2 {
+    font: 700 12pt/1.28 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: -0.1pt;
+    margin: 20pt 0 8pt;
+    padding-top: 9pt;
+    border-top: 1.5pt solid #14171a;
+    break-after: avoid;
+    break-inside: avoid;
+  }
+  h2:first-of-type { margin-top: 14pt; }
+  h2 .n {
+    display: inline-block;
+    min-width: 1.1em;
+    color: #8a94a0;
+  }
+
+  /* The repeating four-part structure inside each failure. */
+  h3 {
+    font: 700 8.2pt/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: 0.9pt;
+    text-transform: uppercase;
+    color: #5a6572;
+    margin: 12pt 0 4pt;
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  p { margin: 0 0 7pt; orphans: 2; widows: 2; }
+
+  ul, ol { margin: 0 0 7pt; padding-left: 15pt; }
+  li { margin-bottom: 3pt; padding-left: 2pt; }
+  ul.tight { list-style: none; padding-left: 0; }
+  ul.tight li { padding-left: 11pt; text-indent: -11pt; }
+  ul.tight li::before { content: "\2013\00a0"; color: #8a94a0; }
+
+  /* Sentences already in the text, lifted because they carry the argument. */
+  blockquote {
+    margin: 0 0 8pt;
+    padding: 1pt 0 1pt 10pt;
+    border-left: 2pt solid #14171a;
+    font-style: italic;
+    break-inside: avoid;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2pt 0 9pt;
+    font-size: 9.2pt;
+    break-inside: avoid;
+  }
+  th {
+    text-align: left;
+    font: 700 7.4pt/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: 0.7pt;
+    text-transform: uppercase;
+    color: #5a6572;
+    border-bottom: 0.6pt solid #14171a;
+    padding: 0 7pt 3pt 0;
+  }
+  td {
+    vertical-align: top;
+    padding: 4pt 7pt 4pt 0;
+    border-bottom: 0.4pt solid #e6e9ed;
+  }
+  tr:last-child td { border-bottom: 0; }
+  .summary td:first-child { font-weight: bold; color: #5a6572; }
+  .split td:first-child { font-weight: bold; white-space: nowrap; }
+
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    background: #f1f3f5;
+    padding: 0.5pt 2.5pt;
+    border-radius: 2pt;
+  }
+
+  .standfirst { font-size: 10.6pt; margin-bottom: 9pt; }
+
+  .close {
+    margin-top: 16pt;
+    padding-top: 8pt;
+    border-top: 1.5pt solid #14171a;
+    break-inside: avoid;
+  }
+  .close h3 { margin-top: 0; }
+  section { break-inside: auto; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <h1>Failure modes</h1>
+  <span class="kicker">Deliverable 4 &middot; Ad Studio</span>
+</header>
+
+<p class="standfirst">Three ways a <strong>correctly functioning</strong> version
+of this tool produces a bad outcome. None are bugs.</p>
+
+<blockquote>Fixing the bugs makes all three worse, because a tool that is often
+wrong gets checked, and a tool that is reliably right stops being checked at
+exactly the point where it is silently wrong.</blockquote>
+
+<section>
+  <h2><span class="n">1.</span> The image model draws a claim no text gate can read</h2>
+
+  <h3>What happens</h3>
+
+  <p>Nano Banana Pro is conditioned on the real product photograph, so the pack
+  comes back looking right. Looking right is the problem.</p>
+
+  <p>The model redraws the bottle rather than compositing it, and on this brand
+  the number printed on the front of the pack <em>is</em> the regulated claim. A
+  10% Niacinamide pack rendered with a 12% or 20% label is a false claim about a
+  real product, published at media spend.</p>
+
+  <p><strong>It passes everything I built.</strong> The claim gate in
+  <code>src/lib/policy/check.ts</code> reads the copy layer:</p>
+
+  <ul class="tight">
+    <li>headline</li>
+    <li>subhead</li>
+    <li>body</li>
+    <li>the text string handed to the image model</li>
+  </ul>
+
+  <p>The digits the model paints onto the bottle are not in any of those fields.
+  They are pixels, and no gate in this codebase reads pixels.</p>
+
+  <p><strong>The risk is worst exactly where this brand's creatives live.</strong>
+  Its ads are text-heavy by design: leader lines to small-caps labels, callout
+  boxes, a concentration set in large type. Every one of those is a surface for
+  the model to hallucinate a digit, and the more type in the frame the more
+  chances it gets.</p>
+
+  <p>A one-digit error is also the version that actually ships, because a
+  creative that looks correct is the one a reviewer approves fastest.</p>
+
+  <h3>Why it isn't a bug</h3>
+
+  <p>The model is doing what it was asked. There is no defect to fix, only a
+  check that does not exist.</p>
+
+  <h3>Fix</h3>
+
+  <p>A <strong>pixel-level claim gate</strong>: OCR the rendered creative, pull
+  every number and unit off the depicted packaging and off any large type in the
+  frame, and run the same allowlist already applied to copy. A mismatch blocks
+  identically to a bad headline.</p>
+
+  <p>If OCR proves unreliable at small type, the fallback is structural rather
+  than clever: composite the real photograph and let the model generate only the
+  environment around it.</p>
+
+  <h3>Before launch</h3>
+
+  <p>This gates going live at all. Until it exists, run with the pack held below
+  legible size, or treat generated creatives as internal comps that a designer
+  rebuilds before spend.</p>
+
+  <blockquote>I did not build this check and I would not put media budget behind
+  the tool without it.</blockquote>
+</section>
+
+<section>
+  <h2><span class="n">2.</span> The tool's picture of Minimalist is frozen, and nothing in it notices when the brand moves</h2>
+
+  <p>Three things were derived once, from one reading of the brand at one date:</p>
+
+  <ol>
+    <li>the voice and compliance rules</li>
+    <li>the visual identity</li>
+    <li>the shape of the storefront JSON</li>
+  </ol>
+
+  <p>All three go stale, in different ways, and none of them announces it.</p>
+
+  <h3>What happens: the rules</h3>
+
+  <p>The brand launches a product at a concentration the rules do not know, or
+  runs a festive campaign in a register the voice rules call off-brand, or adopts
+  a new colour into the palette. The scorer keeps returning 84 out of 100 with a
+  confident rationale. A number with a rationale reads as an institutional
+  standard rather than as one person's judgment from a date.</p>
+
+  <p>The damage is not the wrong score. It is that the scorer starts blocking
+  legitimate new work, the team learns to override it, overriding becomes the
+  habit, and the habit carries into the compliance findings where it was right.
+  The tool loses authority precisely where it had value, and loses it quietly.</p>
+
+  <h3>What happens: the storefront</h3>
+
+  <p>The claim gate's entire allowlist is scraped, so the gate is only ever as
+  good as the parse behind it. Two places are brittle by construction:</p>
+
+  <ul class="tight">
+    <li><strong>Concentrations</strong> are pulled out of the <em>product
+    title</em> with a regex (<code>extractConcentrations</code> in
+    <code>src/lib/scrape/shopify.ts</code>), so a title format change empties or
+    corrupts the allowlist.</li>
+    <li><strong>Price</strong> is read from two Shopify endpoints that report
+    different units, <code>/products.json</code> in decimal rupees and
+    <code>/products/&lt;handle&gt;.js</code> in integer paise, normalised in
+    exactly one place.</li>
+  </ul>
+
+  <p>A Shopify migration, a theme change, a headless replatform, or a key rename
+  breaks that quietly.</p>
+
+  <p><strong>The failure is asymmetric, and the bad half is the quiet one.</strong></p>
+
+  <table class="split">
+    <thead><tr><th>Parse returns</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Nothing</td>
+        <td>Every numeric claim blocks. Somebody notices within an hour.</td>
+      </tr>
+      <tr>
+        <td>The wrong number</td>
+        <td>The gate authorises it and prints it with full confidence. The tool
+        built to prevent false claims has just manufactured one.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Why it isn't a bug</h3>
+
+  <p>Nothing is broken today. The brand moving is the normal case, not the
+  exception.</p>
+
+  <h3>Fix</h3>
+
+  <p>Three, in cost order.</p>
+
+  <ol>
+    <li><strong>Version and date the ruleset</strong>, and print the version on
+    every score, so the standard is legibly a document with an author.</li>
+    <li><strong>Make disagreement a first-class input</strong>: an override on any
+    finding that requires a written reason, captured. Overrides are the only
+    signal that will ever tell you which rules are wrong, and they are free to
+    collect.</li>
+    <li><strong>Add a parse canary</strong>: a scheduled read of a handful of
+    known products asserting the shape and the values, failing loudly on drift
+    rather than at the next creative.</li>
+  </ol>
+
+  <h3>Before launch</h3>
+
+  <p>The version stamp and the parse canary. Both are cheap and both change how
+  every downstream output is read.</p>
+
+  <p>Override capture and a standing rule review follow once there is enough
+  traffic for the overrides to say something.</p>
+</section>
+
+<section>
+  <h2><span class="n">3.</span> The scorer sounds equally confident whether it verified anything or not, and it does not repeat itself</h2>
+
+  <p>Two mechanisms, one presentation. Both end with a reviewer trusting a number
+  that has not earned it.</p>
+
+  <h3>What happens: it cannot verify what it was not given</h3>
+
+  <p>The product URL is optional. Without one, product-specific claims come back
+  marked <code>verified: false</code> rather than silently passing, which is the
+  right design and is where the honesty stops.</p>
+
+  <blockquote>A disclaimer sitting beside a confident 78 out of 100 is not a
+  guardrail, it is a footnote, and footnotes do not change behaviour.</blockquote>
+
+  <p>A creative stating the wrong concentration for a real product scores well,
+  reads as approved, and the one line saying the claim was not checked is the
+  line nobody reads.</p>
+
+  <h3>What happens: it does not repeat itself</h3>
+
+  <p>The scorer already runs at <code>temperature: 0</code>
+  (<code>src/lib/pipeline/score.ts</code>). That is worth stating plainly,
+  because the obvious lever is already pulled: <strong>temperature 0 is not
+  determinism.</strong> Batching, floating-point non-associativity and any model
+  version change all move the output, so the same creative scored twice gives
+  different findings and a different number.</p>
+
+  <p>The range being narrow does not make this survivable, and this is where I
+  would push back on treating it as a cosmetic inconsistency. <strong>The verdict
+  boundary sits <em>inside</em> the range.</strong> <code>aggregate()</code> marks
+  a creative <code>fix_required</code> when <code>overall &lt; 70</code>, so 68
+  and 71 are the same creative with opposite outcomes.</p>
+
+  <p>Once a marketer notices that re-running sometimes flips a fail to a pass,
+  re-running is free and takes eight seconds. The scorer stops being a gate and
+  becomes a dice roll with a retry button, and the compliance findings it was
+  actually good at get re-rolled along with everything else.</p>
+
+  <h3>Why it isn't a bug</h3>
+
+  <p>Both behaviours are the system working as specified. The first is the honest
+  handling of missing evidence; the second is what generative scoring is.</p>
+
+  <h3>Fix</h3>
+
+  <p>Build a <strong>human-scored eval set</strong>: fifty to a hundred real
+  creatives, passed and failed, scored by the people whose judgment the tool is
+  meant to encode. That set does three jobs a prompt cannot:</p>
+
+  <ol>
+    <li>It calibrates the absolute numbers against something other than the
+    model's self-consistency.</li>
+    <li>It measures run-to-run variance, so the threshold can be set outside the
+    noise band, or replaced with a band and a "borderline, send to a human"
+    verdict.</li>
+    <li>It becomes the regression test for every prompt and model change, which
+    is the only way to know an upgrade did not quietly move the standard.</li>
+  </ol>
+
+  <p>Alongside it, two smaller changes:</p>
+
+  <ul class="tight">
+    <li>Make unverified a <strong>verdict state</strong> rather than a footnote,
+    so a creative with unverifiable product claims cannot return
+    <code>pass</code> at all.</li>
+    <li>Show the run count on any creative scored more than once, so score
+    shopping is visible in the record rather than invisible in it.</li>
+  </ul>
+
+  <h3>Before launch</h3>
+
+  <p>The unverified verdict state, and pinning the model version. Both are small
+  and both stop the worst reading of the output.</p>
+
+  <p>The eval set is the real answer and it is a week of somebody's time, so it
+  lands after launch, but nothing else in this document should be trusted until
+  it exists.</p>
+</section>
+
+<section>
+  <h2>Summary</h2>
+
+  <table class="summary">
+    <thead>
+      <tr>
+        <th>#</th><th>Failure</th><th>Cost if it lands</th>
+        <th>Before launch</th><th>After</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>Fabricated concentration on the pack</td>
+        <td>False regulated claim at media spend</td>
+        <td>Pixel-level claim gate, or keep the pack illegible</td>
+        <td>Composite real photography</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Frozen rules, palette and storefront parse</td>
+        <td>Wrong claims authorised; tool overridden into irrelevance</td>
+        <td>Ruleset version stamp, parse canary</td>
+        <td>Override capture, standing rule review</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Uncalibrated, non-repeating scores</td>
+        <td>Score shopping; unverified claims read as approved</td>
+        <td>Unverified as a verdict, pinned model version</td>
+        <td>Human-scored eval set</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="close">
+    <h3>The one I am least able to defend</h3>
+    <p><strong>Failure mode 1.</strong> Everything else here is something I would
+    improve. That one is something I would gate the launch on, and I did not
+    build the check.</p>
+  </div>
+</section>
+
+</body>
+</html>
