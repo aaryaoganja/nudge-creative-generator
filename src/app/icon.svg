@@ -12,7 +12,7 @@
   icon is legible on both light and dark browser chrome without a second file.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="t">
-  <title id="t">Ad Studio by Nudge</title>
+  <title id="t">Ad Studio</title>
   <rect width="32" height="32" rx="7" fill="#0a0a0a"/>
   <rect x="11.75" y="5.75" width="14.5" height="16.5" rx="2.75"
         fill="none" stroke="#d9a85c" stroke-opacity="0.55" stroke-width="1.6"/>

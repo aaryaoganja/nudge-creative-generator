@@ -37,7 +37,7 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Ad Studio by Nudge",
+  title: "Ad Studio",
   description: "Generate and score ad creatives from a product URL.",
 };
 

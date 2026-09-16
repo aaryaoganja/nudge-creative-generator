@@ -8,7 +8,7 @@ import { Nav } from "../nav";
 import { KeysForm } from "./keys-form";
 
 export const metadata: Metadata = {
-  title: "API key, Ad Studio by Nudge",
+  title: "API key, Ad Studio",
   robots: { index: false, follow: false },
 };
 

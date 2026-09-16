@@ -1,5 +1,5 @@
 /*
- * Ad Studio by Nudge — design system.
+ * Ad Studio — design system.
  *
  * Lifted from the client's own product surface, so the tool and the product it
  * serves read as one thing: near-black grounds, bone type, hairline structure,
@@ -104,27 +104,6 @@
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /*
-   * How the borrowed Nudge mark is painted on our ground. One token, used by
-   * both surfaces that render it (the top nav and the gate), because they had
-   * drifted: the gate inverted it and the nav did not, so the same file was
-   * black in one place and white in the other — and at least one of those was
-   * invisible against a #0a0a0a background.
-   *
-   * `brightness(0)` crushes every opaque pixel to black and `invert(1)` lifts
-   * it to white, leaving alpha untouched. That is deliberately polarity-blind:
-   * dark-ink, light-ink and full-colour versions of the file all land on the
-   * same bone as the wordmark beside it, which is the treatment a partner mark
-   * gets in a monochrome dark system anyway. It also means the bar cannot be
-   * broken by the asset being swapped upstream for the other polarity.
-   *
-   * The one case it does not survive is a mark exported on an opaque white
-   * plate rather than transparency — that would paint a white rectangle. If
-   * that is what nudge.new serves, set this to `none` and give .topnav-logo a
-   * light chip instead.
-   */
-  --logo-filter: brightness(0) invert(1);
-
   color-scheme: dark;
 }
 
@@ -181,53 +160,10 @@ body {
   flex: none;
 }
 
-.topnav-lockup {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
 /*
- * A reserved box for a cross-origin asset of unknown intrinsic width. Without
- * it the row is one width before the logo decodes and another after, which is
- * layout shift in the first thing a user looks at. 72×20 is the widest the mark
- * renders at this height; the image is contained inside it, so a different
- * aspect ratio letterboxes rather than resizes the bar.
- */
-.topnav-logo-slot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  min-width: 86px;
-  height: 24px;
-  flex: none;
-}
-
-.topnav-logo {
-  height: 24px;
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
-  display: block;
-  filter: var(--logo-filter);
-  /* Slightly back from the wordmark: the partner mark should read as an
-     attribution, not compete with the product name it follows. */
-  opacity: 0.92;
-}
-
-/* What "by Nudge" degrades to when the asset does not load. Same size and
-   weight as the mark it replaces, so the bar does not reflow on failure. */
-.topnav-logo-fallback {
-  font-family: var(--display);
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-
-/*
- * Larger than it was. At 0.95rem the product name read as a caption beside its
- * own logo; the supplied design sets it as the heaviest thing in the bar.
+ * Larger than it was. At 0.95rem the product name read as a caption beside the
+ * mark that used to follow it; the supplied design sets it as the heaviest
+ * thing in the bar, and it is now the only thing in the bar.
  */
 .topnav-wordmark {
   font-family: var(--display);
@@ -235,14 +171,6 @@ body {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
-}
-
-/* The joining word, deliberately the quietest thing in the lockup: it is
-   grammar, not branding. --muted is 5.7:1 on --ground. */
-.topnav-by {
-  font-size: 0.9rem;
-  color: var(--muted);
-  font-weight: 400;
 }
 
 /*

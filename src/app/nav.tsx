@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BrandLockup, type BrandLockupClasses } from "./brand-lockup";
 import { VIEWS, VIEW_LABELS, viewHref, type View } from "./view";
 
 /**
@@ -18,15 +17,6 @@ import { VIEWS, VIEW_LABELS, viewHref, type View } from "./view";
  * `#score` anchors pointing at ids that existed nowhere, twenty pixels above
  * the working tab strip. Every link here now goes somewhere real.
  */
-
-const NAV_LOCKUP: BrandLockupClasses = {
-  root: "topnav-lockup",
-  wordmark: "topnav-wordmark",
-  by: "topnav-by",
-  slot: "topnav-logo-slot",
-  logo: "topnav-logo",
-  fallback: "topnav-logo-fallback",
-};
 
 export interface NavProps {
   /**
@@ -53,8 +43,8 @@ export function Nav({ view, current }: NavProps) {
   return (
     <header className="topnav">
       <div className="topnav-inner">
-        <Link className="topnav-brand" href="/" aria-label="Ad Studio by Nudge, home">
-          <BrandLockup classes={NAV_LOCKUP} />
+        <Link className="topnav-brand" href="/" aria-label="Ad Studio, home">
+          <span className="topnav-wordmark">Ad Studio</span>
         </Link>
 
         {onStudio && (

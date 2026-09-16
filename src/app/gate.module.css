@@ -36,56 +36,12 @@
   padding-top: 3rem;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-/*
- * A reserved box for a cross-origin asset of unknown intrinsic width — without
- * it the lockup is one width before the mark decodes and another after, which
- * is layout shift on the first thing a visitor sees.
- */
-.logoSlot {
-  display: inline-flex;
-  align-items: center;
-  min-width: 72px;
-  height: 20px;
-  flex: none;
-}
-
-/* What the mark degrades to when nudge.new cannot be reached. */
-.logoFallback {
-  font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text, #f4f1ec);
-}
-
-.by {
-  font-size: 0.78rem;
-  color: var(--muted, #8c8a85);
-}
-
-/*
- * Same treatment as the nav, from the same token — see globals.css
- * --logo-filter for why it is polarity-blind. The literal fallback repeats it
- * because this page has to render correctly even if globals.css never loaded.
- */
-.logo {
-  height: 20px;
-  width: auto;
-  display: block;
-  filter: var(--logo-filter, brightness(0) invert(1));
-  opacity: 0.92;
-}
-
 /*
  * The product name, not a caption. It used to be uppercase, letterspaced and
- * --muted, which made sense when the borrowed mark led the lockup; now that
- * "Ad Studio" leads it, the two would be the wrong way round.
+ * --muted, which made sense when a mark led the row; it is the only thing on
+ * this line now, so it is set as the name it is. The colour is repeated
+ * literally because this page has to render correctly even if globals.css
+ * never loaded.
  */
 .wordmark {
   font-family: var(--font-display), "Helvetica Neue", Arial, sans-serif;

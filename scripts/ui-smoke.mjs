@@ -96,23 +96,18 @@ async function run(theme) {
     // The login page draws its own centred branding; the app bar linking to
     // pages a signed-out visitor cannot open must not sit on top of it.
     check("no app nav on the login page", (await page.locator(".topnav").count()) === 0);
-    // The mark is fetched from nudge.new, which is unreachable from some
-    // networks. Whatever happens, the lockup must read as words — never as a
-    // broken-image glyph. This is server-rendered HTML, so the failure can
-    // happen before React attaches onError; see brand-lockup.tsx.
-    const gateLockup = await page.locator("main >> text=Ad Studio").first().innerText();
-    check("gate lockup names the product", /Ad Studio/.test(gateLockup), gateLockup);
-    // Wait for the swap rather than sampling the instant the DOM appears:
-    // the fallback is applied by a callback ref, so it lands at hydration, not
-    // at first paint.
-    const gateLogoOk = await page
-      .waitForFunction(() => {
-        const img = document.querySelector('main img[alt="Nudge"]');
-        return img === null || (img.complete && img.naturalWidth > 0);
-      }, null, { timeout: 10000 })
-      .then(() => true)
-      .catch(() => false);
-    check("no broken mark on the gate", gateLogoOk);
+    const gateWordmark = await page.locator("main >> text=Ad Studio").first().innerText();
+    check("gate names the product", /Ad Studio/.test(gateWordmark), gateWordmark);
+    /*
+     * The gate carried a cross-origin partner mark with a text fallback, and
+     * the fallback existed because a failed fetch left a broken-image glyph on
+     * the one page a signed-out visitor sees. Nothing on this page is fetched
+     * from another origin now, so the assertion is simply that no image is.
+     */
+    check(
+      "the gate loads no third-party image",
+      (await page.locator("main img").count()) === 0,
+    );
     await page.screenshot({ path: `${OUT}/00-login.png`, fullPage: true });
 
     // A wrong password must say so rather than failing silently or letting it through.
@@ -139,9 +134,9 @@ async function run(theme) {
     // ── top nav and the view switcher ─────────────────────────────────────
     check("one banner landmark", (await page.locator("header.topnav").count()) === 1);
     check(
-      "nav carries the Ad Studio by Nudge lockup",
+      "nav carries the Ad Studio wordmark, and nothing after it",
       (await page.locator(".topnav-wordmark").innerText()) === "Ad Studio" &&
-        (await page.locator(".topnav-by").innerText()) === "by",
+        (await page.locator(".topnav-brand img").count()) === 0,
     );
     const lockupSize = await page
       .locator(".topnav-wordmark")
